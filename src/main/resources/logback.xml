@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!-- LOG_LEVEL: INFO, DEBUG, WARN, ERROR (set via env or -Dlog.level=DEBUG) -->
+    <property name="LOG_LEVEL" value="${log.level:-${LOG_LEVEL:-INFO}}"/>
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <includeMdcKeyName>key</includeMdcKeyName>
+            <customFields>{"service":"altibase-exporter"}</customFields>
+            <shortenedLoggerNameLength>36</shortenedLoggerNameLength>
+        </encoder>
+    </appender>
+
+    <root level="${LOG_LEVEL}">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>

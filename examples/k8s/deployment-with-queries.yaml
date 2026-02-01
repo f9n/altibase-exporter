@@ -1,0 +1,87 @@
+# Same as deployment.yaml but mounts queries.yaml from the same ConfigMap and sets ALTIBASE_QUERIES_FILE.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: altibase-exporter
+  labels:
+    app: altibase-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: altibase-exporter
+  template:
+    metadata:
+      labels:
+        app: altibase-exporter
+    spec:
+      volumes:
+        - name: config
+          configMap:
+            name: altibase-exporter-config
+            items:
+              - key: queries.yaml
+                path: queries.yaml
+      containers:
+        - name: altibase-exporter
+          image: ghcr.io/f9n/altibase-exporter:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 9399
+          env:
+            - name: ALTIBASE_SERVER
+              valueFrom:
+                configMapKeyRef:
+                  name: altibase-exporter-config
+                  key: ALTIBASE_SERVER
+            - name: ALTIBASE_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: altibase-exporter-config
+                  key: ALTIBASE_PORT
+            - name: ALTIBASE_DATABASE
+              valueFrom:
+                configMapKeyRef:
+                  name: altibase-exporter-config
+                  key: ALTIBASE_DATABASE
+            - name: WEB_LISTEN_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: altibase-exporter-config
+                  key: WEB_LISTEN_PORT
+            - name: ALTIBASE_QUERIES_FILE
+              value: "/etc/altibase-exporter/queries.yaml"
+            - name: ALTIBASE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: altibase-exporter-secret
+                  key: ALTIBASE_USER
+            - name: ALTIBASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: altibase-exporter-secret
+                  key: ALTIBASE_PASSWORD
+          volumeMounts:
+            - name: config
+              mountPath: /etc/altibase-exporter
+              readOnly: true
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /-/healthy
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5

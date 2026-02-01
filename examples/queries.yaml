@@ -1,0 +1,26 @@
+# Example custom queries for the Altibase exporter.
+# Use with: ALTIBASE_QUERIES_FILE=examples/queries.yaml (or copy and edit this file).
+# Each query runs at scrape time; result rows become Prometheus gauge data points.
+# Required fields per query: name, help, sql. Optional: label_columns.
+
+queries:
+  - name: altibase_ping
+    help: "Ping check (SELECT 1)"
+    sql: "SELECT 1 AS value"
+
+  - name: altibase_custom_db_mem_alloc_pages
+    help: "Memory alloc page count from V$DATABASE"
+    sql: "SELECT MEM_ALLOC_PAGE_COUNT AS value FROM V$DATABASE"
+
+  - name: altibase_custom_db_mem_free_pages
+    help: "Memory free page count from V$DATABASE"
+    sql: "SELECT MEM_FREE_PAGE_COUNT AS value FROM V$DATABASE"
+
+  - name: altibase_custom_lock_tx_count
+    help: "Transaction count in lock (V$LOCK + V$TRANSACTION, status 0,1,4,5)"
+    sql: "SELECT COUNT(*) AS value FROM V$LOCK L, V$TRANSACTION T WHERE T.ID = L.TRANS_ID AND T.STATUS IN (0,1,4,5)"
+
+  - name: altibase_custom_repl_items
+    help: "Replication item count per replication name"
+    sql: "SELECT REPLICATION_NAME AS rep_name, COUNT(*) AS value FROM SYSTEM_.SYS_REPL_ITEMS_ GROUP BY REPLICATION_NAME"
+    label_columns: [rep_name]

@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: altibase-exporter-config
+  labels:
+    app: altibase-exporter
+data:
+  ALTIBASE_SERVER: "<host>"
+  ALTIBASE_PORT: "20300"
+  ALTIBASE_DATABASE: "mydb"
+  WEB_LISTEN_PORT: "9399"
+  # Optional: custom queries file. If present, use deployment-with-queries.yaml and set ALTIBASE_QUERIES_FILE.
+  queries.yaml: |
+    queries:
+      - name: altibase_ping
+        help: "Ping check (SELECT 1)"
+        sql: "SELECT 1 AS value"
+      # Add more queries; use label_columns for labels.
