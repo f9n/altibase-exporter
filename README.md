@@ -47,6 +47,7 @@ To disable specific metrics:
 - Set `ALTIBASE_DISABLED_METRICS` to a comma-separated list of **metric keys** (metric name without the `altibase_` prefix), e.g. `ALTIBASE_DISABLED_METRICS=sysstat,replication_gap`.
 - Identity/health metrics (`altibase_exporter_build_info`, `altibase_exporter_last_scrape_success`, `altibase_scrape_duration_seconds`, `altibase_version_info`) cannot be disabled.
 
+
 | Metric | Description |
 |--------|-------------|
 | `altibase_exporter_build_info` | Exporter build identity (Info). |
@@ -99,6 +100,7 @@ To disable specific metrics:
 | `altibase_utrans_query_detail` | Top 1 uncommitted transaction query (detail labels). |
 | `altibase_fullscan_query_detail` | Top 1 full-scan query (detail labels). |
 
+
 Metrics that are per-entity (per table, file, event, etc.) have corresponding labels; detail metrics expose multiple labels (session_id, tx_id, query, etc.). See `/metrics` output for exact label names.
 
 ---
@@ -120,7 +122,7 @@ Add a scrape config so Prometheus collects metrics from the exporter:
 
 ```yaml
 scrape_configs:
-  - job_name: 'altibase'
+  - job_name: 'altibase-exporter'
     static_configs:
       - targets: ['<exporter-host>:9399']
 ```

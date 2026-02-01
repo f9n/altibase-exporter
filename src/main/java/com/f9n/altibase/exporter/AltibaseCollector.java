@@ -261,9 +261,11 @@ public final class AltibaseCollector implements MultiCollector {
 
     @ScrapeMetric("memstat_usage_ratio")
     private void scrapeMemstatUsageRatio(ScrapeContext ctx) throws SQLException {
-        String sql = "SELECT A.NAME, A.MAX_TOTAL_SIZE / B.TOTAL_USAGE AS USAGE_PERCENTAGE FROM V$MEMSTAT A, "
-                + "(SELECT SUM(MAX_TOTAL_SIZE) AS TOTAL_USAGE FROM V$MEMSTAT) B "
-                + "ORDER BY USAGE_PERCENTAGE DESC LIMIT 10";
+        String sql = """
+            SELECT A.NAME, A.MAX_TOTAL_SIZE / B.TOTAL_USAGE AS USAGE_PERCENTAGE FROM V$MEMSTAT A, \
+            (SELECT SUM(MAX_TOTAL_SIZE) AS TOTAL_USAGE FROM V$MEMSTAT) B \
+            ORDER BY USAGE_PERCENTAGE DESC LIMIT 10
+            """;
         try (ResultSet rs = ctx.statement().executeQuery(sql)) {
             while (rs.next()) {
                 String name = rs.getString(1);
@@ -311,9 +313,11 @@ public final class AltibaseCollector implements MultiCollector {
 
     @ScrapeMetric("tablespace_usage_ratio")
     private void scrapeTablespaceUsageRatio(ScrapeContext ctx) throws SQLException {
-        try (ResultSet rs = ctx.statement().executeQuery(
-                "SELECT T.NAME, (M.ALLOC_PAGE_COUNT - M.FREE_PAGE_COUNT) * T.PAGE_SIZE * 1.0 / NULLIF(T.TOTAL_PAGE_COUNT * T.PAGE_SIZE, 0) AS USAGE "
-                + "FROM V$TABLESPACES T, V$MEM_TABLESPACES M WHERE T.ID = M.SPACE_ID")) {
+        String sql = """
+            SELECT T.NAME, (M.ALLOC_PAGE_COUNT - M.FREE_PAGE_COUNT) * T.PAGE_SIZE * 1.0 / NULLIF(T.TOTAL_PAGE_COUNT * T.PAGE_SIZE, 0) AS USAGE \
+            FROM V$TABLESPACES T, V$MEM_TABLESPACES M WHERE T.ID = M.SPACE_ID
+            """;
+        try (ResultSet rs = ctx.statement().executeQuery(sql)) {
             while (rs.next()) {
                 String name = rs.getString(1);
                 double usage = rs.getDouble(2);
@@ -408,9 +412,11 @@ public final class AltibaseCollector implements MultiCollector {
 
     @ScrapeMetric("queue_usage_bytes")
     private void scrapeQueueUsage(ScrapeContext ctx) throws SQLException {
-        try (ResultSet rs = ctx.statement().executeQuery(
-                "SELECT B.TABLE_NAME, C.FIXED_ALLOC_MEM+C.VAR_ALLOC_MEM AS ALLOC FROM SYSTEM_.SYS_USERS_ A, SYSTEM_.SYS_TABLES_ B, V$MEMTBL_INFO C, V$TABLESPACES D "
-                + "WHERE A.USER_NAME <> 'SYSTEM_' AND B.TABLE_TYPE = 'Q' AND A.USER_ID = B.USER_ID AND B.TABLE_OID = C.TABLE_OID AND B.TBS_ID = D.ID")) {
+        String sql = """
+            SELECT B.TABLE_NAME, C.FIXED_ALLOC_MEM+C.VAR_ALLOC_MEM AS ALLOC FROM SYSTEM_.SYS_USERS_ A, SYSTEM_.SYS_TABLES_ B, V$MEMTBL_INFO C, V$TABLESPACES D \
+            WHERE A.USER_NAME <> 'SYSTEM_' AND B.TABLE_TYPE = 'Q' AND A.USER_ID = B.USER_ID AND B.TABLE_OID = C.TABLE_OID AND B.TBS_ID = D.ID
+            """;
+        try (ResultSet rs = ctx.statement().executeQuery(sql)) {
             while (rs.next()) {
                 String name = rs.getString(1);
                 long alloc = rs.getLong(2);
@@ -433,9 +439,11 @@ public final class AltibaseCollector implements MultiCollector {
 
     @ScrapeMetric("lock_hold_detail")
     private void scrapeLockHoldInfo(ScrapeContext ctx) throws SQLException {
-        String sql = "SELECT STMT.SESSION_ID, STMT.TX_ID, L.IS_GRANT, L.LOCK_DESC, TBL.TABLE_NAME, STMT.TOTAL_TIME, SUBSTR(STMT.QUERY, 1, 50) "
-                + "FROM SYSTEM_.SYS_TABLES_ TBL, V$STATEMENT STMT, V$LOCK L, V$LOCK_WAIT LOCK_WAIT "
-                + "WHERE L.TRANS_ID = LOCK_WAIT.WAIT_FOR_TRANS_ID AND L.TABLE_OID = TBL.TABLE_OID AND L.TRANS_ID = STMT.TX_ID ORDER BY STMT.TOTAL_TIME DESC LIMIT 1";
+        String sql = """
+            SELECT STMT.SESSION_ID, STMT.TX_ID, L.IS_GRANT, L.LOCK_DESC, TBL.TABLE_NAME, STMT.TOTAL_TIME, SUBSTR(STMT.QUERY, 1, 50) \
+            FROM SYSTEM_.SYS_TABLES_ TBL, V$STATEMENT STMT, V$LOCK L, V$LOCK_WAIT LOCK_WAIT \
+            WHERE L.TRANS_ID = LOCK_WAIT.WAIT_FOR_TRANS_ID AND L.TABLE_OID = TBL.TABLE_OID AND L.TRANS_ID = STMT.TX_ID ORDER BY STMT.TOTAL_TIME DESC LIMIT 1
+            """;
         try (ResultSet rs = ctx.statement().executeQuery(sql)) {
             if (rs.next()) {
                 long sessionId = rs.getLong(1);
@@ -454,9 +462,11 @@ public final class AltibaseCollector implements MultiCollector {
 
     @ScrapeMetric("lock_wait_detail")
     private void scrapeLockWaitInfo(ScrapeContext ctx) throws SQLException {
-        String sql = "SELECT STMT.SESSION_ID, STMT.TX_ID, L.IS_GRANT, NVL(LOCK_WAIT.WAIT_FOR_TRANS_ID, -1), L.LOCK_DESC, TBL.TABLE_NAME, STMT.TOTAL_TIME, SUBSTR(STMT.QUERY, 1, 50) "
-                + "FROM SYSTEM_.SYS_TABLES_ TBL, V$STATEMENT STMT, V$LOCK L, V$LOCK_WAIT LOCK_WAIT "
-                + "WHERE L.TRANS_ID = LOCK_WAIT.TRANS_ID AND L.TABLE_OID = TBL.TABLE_OID AND L.TRANS_ID = STMT.TX_ID ORDER BY STMT.TOTAL_TIME DESC LIMIT 1";
+        String sql = """
+            SELECT STMT.SESSION_ID, STMT.TX_ID, L.IS_GRANT, NVL(LOCK_WAIT.WAIT_FOR_TRANS_ID, -1), L.LOCK_DESC, TBL.TABLE_NAME, STMT.TOTAL_TIME, SUBSTR(STMT.QUERY, 1, 50) \
+            FROM SYSTEM_.SYS_TABLES_ TBL, V$STATEMENT STMT, V$LOCK L, V$LOCK_WAIT LOCK_WAIT \
+            WHERE L.TRANS_ID = LOCK_WAIT.TRANS_ID AND L.TABLE_OID = TBL.TABLE_OID AND L.TRANS_ID = STMT.TX_ID ORDER BY STMT.TOTAL_TIME DESC LIMIT 1
+            """;
         try (ResultSet rs = ctx.statement().executeQuery(sql)) {
             if (rs.next()) {
                 long sessionId = rs.getLong(1);
@@ -480,11 +490,15 @@ public final class AltibaseCollector implements MultiCollector {
 
     @ScrapeMetric(value = "tx_of_memory_view_scn", catchSchemaError = true)
     private void scrapeTxOfMemoryViewScn(ScrapeContext ctx) throws SQLException {
-        String fullSql = "SELECT ST.SESSION_ID, TX.ID AS TX_ID, ST.TOTAL_TIME, ST.EXECUTE_TIME, SUBSTR(ST.QUERY, 1, 50) FROM V$STATEMENT ST, V$TRANSACTION TX "
-                + "WHERE ST.TX_ID = TX.ID AND TX.ID IN (SELECT T.ID FROM V$TRANSACTION T, (SELECT MINMEMSCNINTXS AS SCN_VAL FROM V$MEMGC LIMIT 1) GC "
-                + "WHERE T.MEMORY_VIEW_SCN = GC.SCN_VAL OR T.MIN_MEMORY_LOB_VIEW_SCN = GC.SCN_VAL) AND ST.SESSION_ID != SESSION_ID() AND TX.SESSION_ID <> SESSION_ID() ORDER BY ST.TOTAL_TIME DESC LIMIT 1";
-        String fallbackSql = "SELECT ST.SESSION_ID, TX.ID AS TX_ID, ST.TOTAL_TIME, ST.EXECUTE_TIME, SUBSTR(ST.QUERY, 1, 50) FROM V$STATEMENT ST, V$TRANSACTION TX "
-                + "WHERE ST.TX_ID = TX.ID AND ST.SESSION_ID != SESSION_ID() AND TX.SESSION_ID <> SESSION_ID() ORDER BY ST.TOTAL_TIME DESC LIMIT 1";
+        String fullSql = """
+            SELECT ST.SESSION_ID, TX.ID AS TX_ID, ST.TOTAL_TIME, ST.EXECUTE_TIME, SUBSTR(ST.QUERY, 1, 50) FROM V$STATEMENT ST, V$TRANSACTION TX \
+            WHERE ST.TX_ID = TX.ID AND TX.ID IN (SELECT T.ID FROM V$TRANSACTION T, (SELECT MINMEMSCNINTXS AS SCN_VAL FROM V$MEMGC LIMIT 1) GC \
+            WHERE T.MEMORY_VIEW_SCN = GC.SCN_VAL OR T.MIN_MEMORY_LOB_VIEW_SCN = GC.SCN_VAL) AND ST.SESSION_ID != SESSION_ID() AND TX.SESSION_ID <> SESSION_ID() ORDER BY ST.TOTAL_TIME DESC LIMIT 1
+            """;
+        String fallbackSql = """
+            SELECT ST.SESSION_ID, TX.ID AS TX_ID, ST.TOTAL_TIME, ST.EXECUTE_TIME, SUBSTR(ST.QUERY, 1, 50) FROM V$STATEMENT ST, V$TRANSACTION TX \
+            WHERE ST.TX_ID = TX.ID AND ST.SESSION_ID != SESSION_ID() AND TX.SESSION_ID <> SESSION_ID() ORDER BY ST.TOTAL_TIME DESC LIMIT 1
+            """;
         String sql = fullSql;
         for (int attempt = 0; attempt < 2; attempt++) {
             try (ResultSet rs = ctx.statement().executeQuery(sql)) {
@@ -512,8 +526,10 @@ public final class AltibaseCollector implements MultiCollector {
 
     @ScrapeMetric("long_run_query_detail")
     private void scrapeLongRunQueryInfo(ScrapeContext ctx) throws SQLException {
-        String sql = "SELECT SESSION_ID, ID, TX_ID, (PARSE_TIME+VALIDATE_TIME+OPTIMIZE_TIME) AS PREPARE_TIME, FETCH_TIME, EXECUTE_TIME, TOTAL_TIME, NVL(LTRIM(QUERY), 'NONE') "
-                + "FROM V$STATEMENT WHERE EXECUTE_FLAG = 1 AND EXECUTE_TIME/1000000 > 1 ORDER BY EXECUTE_TIME DESC LIMIT 1";
+        String sql = """
+            SELECT SESSION_ID, ID, TX_ID, (PARSE_TIME+VALIDATE_TIME+OPTIMIZE_TIME) AS PREPARE_TIME, FETCH_TIME, EXECUTE_TIME, TOTAL_TIME, NVL(LTRIM(QUERY), 'NONE') \
+            FROM V$STATEMENT WHERE EXECUTE_FLAG = 1 AND EXECUTE_TIME/1000000 > 1 ORDER BY EXECUTE_TIME DESC LIMIT 1
+            """;
         try (ResultSet rs = ctx.statement().executeQuery(sql)) {
             if (rs.next()) {
                 long sessionId = rs.getLong(1);
@@ -533,8 +549,10 @@ public final class AltibaseCollector implements MultiCollector {
 
     @ScrapeMetric("utrans_query_detail")
     private void scrapeUtransQueryInfo(ScrapeContext ctx) throws SQLException {
-        String sql = "SELECT ST.SESSION_ID, SS.COMM_NAME, SS.CLIENT_PID, SS.CLIENT_APP_INFO, (BASE_TIME - TR.FIRST_UPDATE_TIME) AS UTRANS_TIME, ST.EXECUTE_TIME, ST.TOTAL_TIME, NVL(LTRIM(ST.QUERY), 'NONE') "
-                + "FROM V$TRANSACTION TR, V$STATEMENT ST, V$SESSIONMGR, V$SESSION SS WHERE TR.ID = ST.TX_ID AND ST.SESSION_ID = SS.ID AND TR.FIRST_UPDATE_TIME != 0 AND (BASE_TIME - TR.FIRST_UPDATE_TIME) > 1 ORDER BY (BASE_TIME - TR.FIRST_UPDATE_TIME) DESC LIMIT 1";
+        String sql = """
+            SELECT ST.SESSION_ID, SS.COMM_NAME, SS.CLIENT_PID, SS.CLIENT_APP_INFO, (BASE_TIME - TR.FIRST_UPDATE_TIME) AS UTRANS_TIME, ST.EXECUTE_TIME, ST.TOTAL_TIME, NVL(LTRIM(ST.QUERY), 'NONE') \
+            FROM V$TRANSACTION TR, V$STATEMENT ST, V$SESSIONMGR, V$SESSION SS WHERE TR.ID = ST.TX_ID AND ST.SESSION_ID = SS.ID AND TR.FIRST_UPDATE_TIME != 0 AND (BASE_TIME - TR.FIRST_UPDATE_TIME) > 1 ORDER BY (BASE_TIME - TR.FIRST_UPDATE_TIME) DESC LIMIT 1
+            """;
         try (ResultSet rs = ctx.statement().executeQuery(sql)) {
             if (rs.next()) {
                 long sessionId = rs.getLong(1);
@@ -554,8 +572,10 @@ public final class AltibaseCollector implements MultiCollector {
 
     @ScrapeMetric(value = "fullscan_query_detail", catchSchemaError = true)
     private void scrapeFullscanQueryInfo(ScrapeContext ctx) throws SQLException {
-        String sql = "SELECT T.SESSION_ID, S.COMM_NAME, S.CLIENT_PID, S.CLIENT_APP_INFO, (T.PARSE_TIME+T.VALIDATE_TIME+T.OPTIMIZE_TIME) AS PREPARE_TIME, T.FETCH_TIME, T.EXECUTE_TIME, T.TOTAL_TIME, NVL(LTRIM(T.QUERY), 'NONE') "
-                + "FROM V$STATEMENT T, V$SESSION S WHERE S.ID = T.SESSION_ID AND (T.MEM_CURSOR_FULL_SCAN > 0 OR T.DISK_CURSOR_FULL_SCAN > 0) AND UPPER(T.QUERY) NOT LIKE '%INSERT%' AND S.CLIENT_INFO != 'altibase-exporter' ORDER BY T.EXECUTE_TIME DESC LIMIT 1";
+        String sql = """
+            SELECT T.SESSION_ID, S.COMM_NAME, S.CLIENT_PID, S.CLIENT_APP_INFO, (T.PARSE_TIME+T.VALIDATE_TIME+T.OPTIMIZE_TIME) AS PREPARE_TIME, T.FETCH_TIME, T.EXECUTE_TIME, T.TOTAL_TIME, NVL(LTRIM(T.QUERY), 'NONE') \
+            FROM V$STATEMENT T, V$SESSION S WHERE S.ID = T.SESSION_ID AND (T.MEM_CURSOR_FULL_SCAN > 0 OR T.DISK_CURSOR_FULL_SCAN > 0) AND UPPER(T.QUERY) NOT LIKE '%INSERT%' AND S.CLIENT_INFO != 'altibase-exporter' ORDER BY T.EXECUTE_TIME DESC LIMIT 1
+            """;
         try (ResultSet rs = ctx.statement().executeQuery(sql)) {
             if (rs.next()) {
                 long sessionId = rs.getLong(1);
@@ -594,11 +614,13 @@ public final class AltibaseCollector implements MultiCollector {
     @ScrapeMetric({"lock_hold_count", "lock_wait_count"})
     private void scrapeLocks(ScrapeContext ctx) throws SQLException {
         long hold = 0, wait = 0;
-        String sql = "SELECT DECODE(LOCK_STMT.STATE, 0, 'LOCK_HOLD_COUNT', 1, 'LOCK_WAIT_COUNT') AS LOCK_STATE, COUNT(*) AS CNT "
-                + "FROM SYSTEM_.SYS_TABLES_ TBL, V$LOCK_STATEMENT LOCK_STMT, V$STATEMENT STMT "
-                + "LEFT OUTER JOIN V$LOCK_WAIT LOCK_WAIT ON STMT.TX_ID = LOCK_WAIT.TRANS_ID "
-                + "WHERE TBL.TABLE_OID = LOCK_STMT.TABLE_OID AND STMT.SESSION_ID = LOCK_STMT.SESSION_ID "
-                + "AND STMT.TX_ID = LOCK_STMT.TX_ID AND LOCK_STMT.STATE IN (0,1) GROUP BY LOCK_STMT.STATE";
+        String sql = """
+            SELECT DECODE(LOCK_STMT.STATE, 0, 'LOCK_HOLD_COUNT', 1, 'LOCK_WAIT_COUNT') AS LOCK_STATE, COUNT(*) AS CNT \
+            FROM SYSTEM_.SYS_TABLES_ TBL, V$LOCK_STATEMENT LOCK_STMT, V$STATEMENT STMT \
+            LEFT OUTER JOIN V$LOCK_WAIT LOCK_WAIT ON STMT.TX_ID = LOCK_WAIT.TRANS_ID \
+            WHERE TBL.TABLE_OID = LOCK_STMT.TABLE_OID AND STMT.SESSION_ID = LOCK_STMT.SESSION_ID \
+            AND STMT.TX_ID = LOCK_STMT.TX_ID AND LOCK_STMT.STATE IN (0,1) GROUP BY LOCK_STMT.STATE
+            """;
         try (ResultSet rs = ctx.statement().executeQuery(sql)) {
             while (rs.next()) {
                 String state = rs.getString(1);
@@ -619,17 +641,21 @@ public final class AltibaseCollector implements MultiCollector {
 
     @ScrapeMetric("utrans_query_count")
     private void scrapeUtransQueryCount(ScrapeContext ctx) throws SQLException {
-        String sql = "SELECT COUNT(*) FROM V$TRANSACTION TR, V$STATEMENT ST, V$SESSIONMGR, V$SESSION SS "
-                + "WHERE TR.ID = ST.TX_ID AND ST.SESSION_ID = SS.ID AND TR.FIRST_UPDATE_TIME != 0 AND (BASE_TIME - TR.FIRST_UPDATE_TIME) > 1";
+        String sql = """
+            SELECT COUNT(*) FROM V$TRANSACTION TR, V$STATEMENT ST, V$SESSIONMGR, V$SESSION SS \
+            WHERE TR.ID = ST.TX_ID AND ST.SESSION_ID = SS.ID AND TR.FIRST_UPDATE_TIME != 0 AND (BASE_TIME - TR.FIRST_UPDATE_TIME) > 1
+            """;
         long utrans = queryLong(ctx, sql);
         ctx.addGauge("utrans_query_count", utrans);
     }
 
     @ScrapeMetric("fullscan_query_count")
     private void scrapeFullscanQueryCount(ScrapeContext ctx) throws SQLException {
-        String sql = "SELECT COUNT(*) FROM V$STATEMENT T, V$SESSION S WHERE S.ID = T.SESSION_ID "
-                + "AND (MEM_CURSOR_FULL_SCAN > 0 OR DISK_CURSOR_FULL_SCAN > 0) AND UPPER(QUERY) NOT LIKE '%INSERT%' "
-                + "AND S.CLIENT_INFO != 'altibase-exporter'";
+        String sql = """
+            SELECT COUNT(*) FROM V$STATEMENT T, V$SESSION S WHERE S.ID = T.SESSION_ID \
+            AND (MEM_CURSOR_FULL_SCAN > 0 OR DISK_CURSOR_FULL_SCAN > 0) AND UPPER(QUERY) NOT LIKE '%INSERT%' \
+            AND S.CLIENT_INFO != 'altibase-exporter'
+            """;
         long fullscan = queryLong(ctx, sql);
         ctx.addGauge("fullscan_query_count", fullscan);
     }
@@ -647,9 +673,11 @@ public final class AltibaseCollector implements MultiCollector {
 
     @ScrapeMetric("service_thread_count")
     private void scrapeServiceThread(ScrapeContext ctx) throws SQLException {
-        String sql = "SELECT TYPE AS NAME, COUNT(*) AS CNT FROM V$SERVICE_THREAD GROUP BY TYPE "
-                + "UNION ALL SELECT STATE AS NAME, COUNT(*) AS CNT FROM V$SERVICE_THREAD GROUP BY STATE "
-                + "UNION ALL SELECT RUN_MODE AS NAME, COUNT(*) AS CNT FROM V$SERVICE_THREAD GROUP BY RUN_MODE";
+        String sql = """
+            SELECT TYPE AS NAME, COUNT(*) AS CNT FROM V$SERVICE_THREAD GROUP BY TYPE \
+            UNION ALL SELECT STATE AS NAME, COUNT(*) AS CNT FROM V$SERVICE_THREAD GROUP BY STATE \
+            UNION ALL SELECT RUN_MODE AS NAME, COUNT(*) AS CNT FROM V$SERVICE_THREAD GROUP BY RUN_MODE
+            """;
         try (ResultSet rs = ctx.statement().executeQuery(sql)) {
             while (rs.next()) {
                 String name = rs.getString(1);
