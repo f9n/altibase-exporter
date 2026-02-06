@@ -1,0 +1,228 @@
+groups:
+  - name: altibase-exporter
+    interval: 30s
+    rules:
+      - alert: AltibaseExporterScrapeFailing
+        expr: altibase_exporter_last_scrape_success == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Altibase exporter scrape failing"
+          description: "Last scrape failed for 5m. Check exporter logs and DB connectivity."
+
+      - alert: AltibaseExporterScrapeSlow
+        expr: altibase_scrape_duration_seconds > 30
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Altibase exporter scrape very slow"
+          description: "Scrape took {{ $value | humanizeDuration }}. DB or exporter may be overloaded."
+
+      - alert: AltibaseTablespaceDiskUsageHigh
+        expr: altibase_tablespace_disk_usage_ratio > 0.85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Altibase disk tablespace {{ $labels.tbs_name }} usage high"
+          description: "Disk tablespace {{ $labels.tbs_name }} is {{ $value | humanizePercentage }} full. Consider extending or adding datafiles."
+
+      - alert: AltibaseTablespaceDiskUsageCritical
+        expr: altibase_tablespace_disk_usage_ratio > 0.95
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Altibase disk tablespace {{ $labels.tbs_name }} almost full"
+          description: "Disk tablespace {{ $labels.tbs_name }} is {{ $value | humanizePercentage }} full. Risk of out-of-space."
+
+      - alert: AltibaseTablespaceMemoryUsageHigh
+        expr: altibase_tablespace_usage_ratio > 0.85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Altibase memory tablespace {{ $labels.tbs_name }} usage high"
+          description: "Memory tablespace {{ $labels.tbs_name }} is {{ $value | humanizePercentage }} full."
+
+      - alert: AltibaseTablespaceMemoryUsageCritical
+        expr: altibase_tablespace_usage_ratio > 0.95
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Altibase memory tablespace {{ $labels.tbs_name }} almost full"
+          description: "Memory tablespace {{ $labels.tbs_name }} is {{ $value | humanizePercentage }} full. Risk of memory exhaustion."
+
+      - alert: AltibaseTablespaceOffline
+        expr: altibase_tablespace_state{state="OFFLINE"} == 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Altibase tablespace {{ $labels.tbs_name }} is offline"
+          description: "Tablespace {{ $labels.tbs_name }} has been offline for 2m."
+
+      - alert: AltibaseReplicationGapHigh
+        expr: altibase_replication_gap > 1000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Altibase replication {{ $labels.replication }} gap high"
+          description: "Replication {{ $labels.replication }} gap is {{ $value }}. Replica may be lagging."
+
+      - alert: AltibaseReplicationGapCritical
+        expr: altibase_replication_gap > 10000
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Altibase replication {{ $labels.replication }} gap very high"
+          description: "Replication {{ $labels.replication }} gap is {{ $value }}. Replica severely lagging."
+
+      - alert: AltibaseReplicationSenderNetError
+        expr: altibase_replication_sender_net_error_flag == 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Altibase replication sender {{ $labels.replication }} network error"
+          description: "Sender {{ $labels.replication }} reports NET_ERROR_FLAG. Check network to peer."
+
+      - alert: AltibaseReplicationReceiverDown
+        expr: altibase_replication_receiver_count == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Altibase has no replication receivers"
+          description: "Expected receivers may be stopped or replication not configured."
+
+      - alert: AltibaseSessionsHigh
+        expr: altibase_sessions{status="total"} > 500
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Altibase session count high"
+          description: "Total sessions {{ $value }}. Consider tuning or scaling."
+
+      - alert: AltibaseSessionsCritical
+        expr: altibase_sessions{status="total"} > 2000
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Altibase session count very high"
+          description: "Total sessions {{ $value }}. Risk of resource exhaustion."
+
+      - alert: AltibaseBufferPoolHitRatioLow
+        expr: altibase_buffer_pool_hit_ratio < 0.90
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Altibase buffer pool hit ratio low"
+          description: "Hit ratio {{ $value | humanizePercentage }}. Consider increasing buffer pool size."
+
+      - alert: AltibaseBufferPoolHitRatioCritical
+        expr: altibase_buffer_pool_hit_ratio < 0.80
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Altibase buffer pool hit ratio very low"
+          description: "Hit ratio {{ $value | humanizePercentage }}. Performance severely degraded."
+
+      - alert: AltibaseLogfileGapHigh
+        expr: altibase_logfile_gap > 5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Altibase logfile gap high"
+          description: "Logfile gap is {{ $value }}. Archive or log reuse may be lagging."
+
+      - alert: AltibaseLockWaitsHigh
+        expr: altibase_lock_wait_count > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Altibase lock waits elevated"
+          description: "Lock wait count {{ $value }}. Check for blocking sessions."
+
+      - alert: AltibaseLockWaitsCritical
+        expr: altibase_lock_wait_count > 50
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Altibase lock waits very high"
+          description: "Lock wait count {{ $value }}. Possible deadlock or severe blocking."
+
+      - alert: AltibaseLongRunQueryHigh
+        expr: altibase_long_run_query_count > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Altibase long-running queries elevated"
+          description: "{{ $value }} queries running longer than 1s. Check slow queries."
+
+      - alert: AltibaseUtransQueryHigh
+        expr: altibase_utrans_query_count > 5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Altibase uncommitted transactions elevated"
+          description: "{{ $value }} uncommitted transaction queries. Check for stuck transactions."
+
+      - alert: AltibaseSequenceUsageHigh
+        expr: altibase_sequence_usage_ratio > 0.85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Altibase sequence {{ $labels.schema }}.{{ $labels.sequence }} near MAXVALUE"
+          description: "Sequence is {{ $value | humanizePercentage }} of MAXVALUE. Consider ALTER SEQUENCE ... MAXVALUE or CYCLE."
+
+      - alert: AltibaseSequenceUsageCritical
+        expr: altibase_sequence_usage_ratio > 0.98
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Altibase sequence {{ $labels.schema }}.{{ $labels.sequence }} almost exhausted"
+          description: "Sequence is {{ $value | humanizePercentage }} of MAXVALUE. Immediate action required."
+
+      - alert: AltibaseJobError
+        expr: altibase_job_error_code != 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Altibase job {{ $labels.job_name }} error"
+          description: "Job {{ $labels.job_name }} last error code {{ $value }}. Check job procedure and logs."
+
+      - alert: AltibaseJobErrorCritical
+        expr: altibase_job_error_code != 0
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Altibase job {{ $labels.job_name }} error persistent"
+          description: "Job {{ $labels.job_name }} has been failing for 30m (error code {{ $value }})."
+
+      - alert: AltibaseGcGapHigh
+        expr: altibase_gc_gap > 1000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Altibase GC {{ $labels.gc_name }} gap high"
+          description: "GC gap is {{ $value }}. Memory GC may be lagging."
