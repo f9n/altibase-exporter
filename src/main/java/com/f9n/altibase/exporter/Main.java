@@ -132,12 +132,13 @@ public class Main {
                 log.error("Connection validation failed: jdbc={}:{} database={} error={}", config.server(), config.port(), config.database(), e.getMessage(), e);
                 System.exit(-1);
             }
+            conn.setReadOnly(true);
         } catch (SQLException e) {
             log.error("Connection failed: jdbc={}:{} database={} error={}", config.server(), config.port(), config.database(), e.getMessage(), e);
             System.exit(-1);
         }
         final Connection connFinal = conn;
-        log.info("Database connection established");
+        log.info("Database connection established (read-only)");
         try (var stmt = conn.createStatement()) {
             stmt.execute("exec set_client_info('altibase-exporter')");
         } catch (SQLException ignored) {}

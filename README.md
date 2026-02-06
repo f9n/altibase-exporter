@@ -14,7 +14,7 @@ The exporter needs only JDBC access to Altibase (no ODBC or Altibase install on 
 |-------|-------------|--------|
 | **Host (VM / bare metal)** | Same machine as Altibase, or any server that can reach Altibase. Java 25 required. | Download JAR from [Releases](https://github.com/f9n/altibase-exporter/releases), set `ALTIBASE_*` env, run `java -jar altibase-exporter.jar`. Metrics at `http://<host>:9399/metrics`. |
 | **Container (Docker)** | Isolated run without installing Java; same host or another host. | Pull image from GHCR (`ghcr.io/f9n/altibase-exporter`), then `docker run` with env vars. Details below. |
-| **Kubernetes** | Exporter in a cluster (e.g. separate from Altibase); ConfigMap + Secret for config. | Edit `examples/k8s/configmap.yaml`, create secret, `kubectl apply -f examples/k8s/`. Details below. |
+| **Kubernetes** | Exporter in a cluster (e.g. separate from Altibase); ConfigMap + Secret for config. | Edit [examples/k8s/configmap.yaml](examples/k8s/configmap.yaml), create secret, `kubectl apply -f examples/k8s/`. Details below. |
 
 ---
 
@@ -31,10 +31,12 @@ The exporter needs only JDBC access to Altibase (no ODBC or Altibase install on 
 | `ALTIBASE_DATABASE` | Database name | mydb |
 | `WEB_LISTEN_PORT` | Exporter HTTP port | 9399 |
 | `ALTIBASE_QUERIES_FILE` | Path to custom queries YAML (optional) | — |
-| `ALTIBASE_DISABLED_METRICS` | Comma-separated list of built-in metric keys to disable (e.g. `sysstat`, `replication_gap`) | — |
+| `ALTIBASE_DISABLED_METRICS` | Comma-separated list of built-in metric keys to disable (e.g. `sysstat`, `replication_gap`, `property`) | — |
 | `LOG_LEVEL` | Log level: `DEBUG`, `INFO`, `WARN`, `ERROR`. Logs are JSON (structured) to stdout. | INFO |
 
 Run: set env or use command-line flags (see [DEVELOPMENT.md](DEVELOPMENT.md)). Metrics at `http://localhost:9399/metrics`.
+
+The JDBC connection is set to **read-only** (`Connection.setReadOnly(true)`), so the exporter cannot modify data; the database will reject any write.
 
 ---
 
@@ -48,60 +50,88 @@ To disable specific metrics:
 - Identity/health metrics (`altibase_exporter_build_info`, `altibase_exporter_last_scrape_success`, `altibase_scrape_duration_seconds`, `altibase_version_info`) cannot be disabled.
 
 
-| Metric | Description |
-|--------|-------------|
-| `altibase_exporter_build_info` | Exporter build identity (Info). |
-| `altibase_exporter_last_scrape_success` | 1 if last scrape succeeded, 0 otherwise. |
-| `altibase_scrape_duration_seconds` | Duration of the last scrape in seconds. |
-| `altibase_instance_working_time_seconds` | Instance working time (V$INSTANCE). |
-| `altibase_version_info` | Altibase server version (Info). |
-| `altibase_archive_mode` | Archive mode 0/1 (V$ARCHIVE). |
-| `altibase_sessions` | Session count; label `status`: total, active. |
-| `altibase_statements` | Statement count; label `status`: total, active. |
-| `altibase_memstat_max_total_bytes` | Sum of MAX_TOTAL_SIZE from V$MEMSTAT. |
-| `altibase_memstat_alloc_bytes` | Sum of ALLOC_SIZE from V$MEMSTAT. |
-| `altibase_memstat_usage_ratio` | Per-name memstat usage ratio, top 10. |
-| `altibase_memstat_bytes` | Per-name memstat max_total_size and alloc_size. |
-| `altibase_buffer_pool_hit_ratio` | Buffer pool hit ratio (V$BUFFPOOL_STAT). |
-| `altibase_buffer_pool_victim_fails` | Buffer pool victim failures (V$BUFFPOOL_STAT). |
-| `altibase_logfile_oldest` | Oldest active logfile number (V$ARCHIVE). |
-| `altibase_logfile_current` | Current logfile number (V$ARCHIVE). |
-| `altibase_logfile_gap` | Logfile gap: current − oldest (V$ARCHIVE). |
-| `altibase_lf_prepare_wait_count` | Logfile prepare wait count (V$LFG). |
-| `altibase_lock_hold_count` | Number of lock holds (V$LOCK_STATEMENT STATE=0). |
-| `altibase_lock_wait_count` | Number of lock waits (V$LOCK_STATEMENT STATE=1). |
-| `altibase_long_run_query_count` | Long-running queries (execute time &gt; 1s). |
-| `altibase_utrans_query_count` | Uncommitted transaction queries (UTRANS). |
-| `altibase_fullscan_query_count` | Full-scan queries (excluding exporter sessions). |
-| `altibase_replication_sender_count` | Replication senders (V$REPSENDER). |
-| `altibase_replication_receiver_count` | Replication receivers (V$REPRECEIVER). |
-| `altibase_replication_gap` | Replication gap by name (V$REPGAP). |
-| `altibase_memory_table_usage_bytes` | Total memory table usage (V$MEMTBL_INFO). |
-| `altibase_disk_table_usage_bytes` | Total disk table usage (V$DISKTBL_INFO). |
-| `altibase_memory_table_usage_bytes_per_table` | Memory table usage per table, top 5. |
-| `altibase_disk_table_usage_bytes_per_table` | Disk table usage per table, top 5. |
-| `altibase_service_thread_count` | Service thread count by type/state/run_mode (V$SERVICE_THREAD). |
-| `altibase_sysstat` | V$SYSSTAT values. |
-| `altibase_gc_gap` | GC gap by GC name (V$MEMGC). |
-| `altibase_tablespace_total_bytes` | Tablespace total size (memory). |
-| `altibase_tablespace_usage_ratio` | Tablespace usage ratio (memory). |
-| `altibase_tablespace_state` | Tablespace state 1=ONLINE, 0=OFFLINE. |
-| `altibase_file_io_reads` | Cumulative physical reads per file (V$FILESTAT). |
-| `altibase_file_io_writes` | Cumulative physical writes per file (V$FILESTAT). |
-| `altibase_file_io_wait_seconds` | Avg single-block read wait per file (seconds). |
-| `altibase_system_event_time_waited_seconds` | System event time waited, non-Idle. |
-| `altibase_session_event_time_waited_seconds` | Session event time waited, non-Idle. |
-| `altibase_queue_usage_bytes` | Queue table usage. |
-| `altibase_segment_usage_bytes` | Segment usage by tablespace. |
-| `altibase_lock_hold_detail` | Top 1 lock hold (detail labels). |
-| `altibase_lock_wait_detail` | Top 1 lock wait (detail labels). |
-| `altibase_tx_of_memory_view_scn` | Top 1 tx with memory view SCN (detail labels). |
-| `altibase_long_run_query_detail` | Top 1 long-running query (detail labels). |
-| `altibase_utrans_query_detail` | Top 1 uncommitted transaction query (detail labels). |
-| `altibase_fullscan_query_detail` | Top 1 full-scan query (detail labels). |
+| Metric | Labels | Description |
+|--------|--------|-------------|
+| `altibase_exporter_build_info` | — | Exporter build identity (Info). |
+| `altibase_exporter_last_scrape_success` | — | 1 if last scrape succeeded, 0 otherwise. |
+| `altibase_scrape_duration_seconds` | — | Duration of the last scrape in seconds. |
+| `altibase_instance_working_time_seconds` | — | Instance working time. |
+| `altibase_version_info` | — | Altibase server version (Info). |
+| `altibase_archive_mode` | — | Archive mode 0/1. |
+| `altibase_sessions` | status | Total or active session count. |
+| `altibase_statements` | status | Total or active statement count. |
+| `altibase_sessions_by_user` | user_name, status | Session count per user. |
+| `altibase_statements_by_user` | user_name, status | Statement count per user. |
+| `altibase_memstat_max_total_bytes` | — | Sum of memstat max total size. |
+| `altibase_memstat_alloc_bytes` | — | Sum of memstat allocated size. |
+| `altibase_memstat_usage_ratio` | name | Per-name usage ratio (top 10). |
+| `altibase_memstat_bytes` | name, type | Per-name max/alloc size. |
+| `altibase_buffer_pool_hit_ratio` | — | Buffer pool hit ratio. |
+| `altibase_buffer_pool_victim_fails` | — | Buffer pool victim failures. |
+| `altibase_logfile_oldest` | — | Oldest active logfile number. |
+| `altibase_logfile_current` | — | Current logfile number. |
+| `altibase_logfile_gap` | — | Logfile gap (current − oldest). |
+| `altibase_lf_prepare_wait_count` | — | Logfile prepare wait count. |
+| `altibase_lock_hold_count` | — | Number of lock holds. |
+| `altibase_lock_wait_count` | — | Number of lock waits. |
+| `altibase_long_run_query_count` | — | Long-running queries (&gt; 1s). |
+| `altibase_utrans_query_count` | — | Uncommitted transaction queries. |
+| `altibase_fullscan_query_count` | — | Full-scan queries (excl. exporter). |
+| `altibase_replication_sender_count` | — | Replication sender count. |
+| `altibase_replication_receiver_count` | — | Replication receiver count. |
+| `altibase_replication_peer` | replication, role, instance_role, status, mode, peer | Replication peer (who, status, mode). |
+| `altibase_replication_sender_xsn` | replication | XSN last transmitted by sender. |
+| `altibase_replication_sender_commit_xsn` | replication | Local commit XSN. |
+| `altibase_replication_sender_net_error_flag` | replication | Sender network error 0=OK, 1=error. |
+| `altibase_replication_gap` | replication | Replication gap by name. |
+| `altibase_replication_gap_size_bytes` | replication | Replication gap size in bytes. |
+| `altibase_replication_gap_rep_last_sn` | replication | Last log SN on source. |
+| `altibase_replication_gap_rep_sn` | replication | Replication position SN. |
+| `altibase_replication_receiver_apply_xsn` | replication | Applied XLog position. |
+| `altibase_replication_item` | replication, local_user, local_table | Replicated tables (1 per table). |
+| `altibase_sequence_current_value` | schema, sequence | Current value (replicated sequences). |
+| `altibase_sequence_usage_ratio` | schema, sequence | Usage 0–1 vs MAXVALUE. |
+| `altibase_sequence_min_value` | schema, sequence | MINVALUE. |
+| `altibase_sequence_max_value` | schema, sequence | MAXVALUE. |
+| `altibase_sequence_cycle` | schema, sequence | 1=CYCLE, 0=NOCYCLE. |
+| `altibase_sequence_cache` | schema, sequence | Cache size (values pre-allocated). |
+| `altibase_job_state` | job_name | 0=idle, 1=executing. |
+| `altibase_job_exec_count` | job_name | Execution count. |
+| `altibase_job_error_code` | job_name | Last error code. |
+| `altibase_job_interval` | job_name | Job interval. |
+| `altibase_tablespace_disk_curr_bytes` | tbs_name | Disk tablespace current size. |
+| `altibase_tablespace_disk_max_bytes` | tbs_name | Disk tablespace max size. |
+| `altibase_tablespace_disk_usage_ratio` | tbs_name | Disk tablespace usage 0–1. |
+| `altibase_tablespace_total_bytes` | tbs_name | Memory tablespace total size. |
+| `altibase_tablespace_usage_ratio` | tbs_name | Memory tablespace usage 0–1. |
+| `altibase_tablespace_state` | tbs_name, state | ONLINE/OFFLINE. |
+| `altibase_user_password_life_time` | user_name | Password life time. |
+| `altibase_user_password_lock_time` | user_name | Password lock time. |
+| `altibase_user_failed_login_attempts` | user_name | Failed login attempts. |
+| `altibase_memory_table_usage_bytes` | — | Total memory table usage. |
+| `altibase_disk_table_usage_bytes` | — | Total disk table usage. |
+| `altibase_memory_table_usage_bytes_per_table` | table_name | Per table, top 5. |
+| `altibase_disk_table_usage_bytes_per_table` | table_name | Per table, top 5. |
+| `altibase_table_size_bytes` | schema, table_name, tablespace, type | Size per user table (memory/disk). |
+| `altibase_service_thread_count` | kind, value | Count by type/state/run_mode. |
+| `altibase_sysstat` | name | System statistic values. |
+| `altibase_property` | name, value | Server configuration (pg_settings–style). |
+| `altibase_gc_gap` | gc_name | GC gap by name. |
+| `altibase_file_io_reads` | name | Cumulative physical reads per file. |
+| `altibase_file_io_writes` | name | Cumulative physical writes per file. |
+| `altibase_file_io_wait_seconds` | name | Avg single-block read wait per file (s). |
+| `altibase_system_event_time_waited_seconds` | name | System event time waited (non-Idle). |
+| `altibase_session_event_time_waited_seconds` | name | Session event time waited (non-Idle). |
+| `altibase_queue_usage_bytes` | name | Queue table usage. |
+| `altibase_segment_usage_bytes` | name | Segment usage by tablespace. |
+| `altibase_lock_hold_detail` | (multiple) | Top 1 lock hold. |
+| `altibase_lock_wait_detail` | (multiple) | Top 1 lock wait. |
+| `altibase_tx_of_memory_view_scn` | (multiple) | Top 1 tx memory view SCN. |
+| `altibase_long_run_query_detail` | (multiple) | Top 1 long-running query. |
+| `altibase_utrans_query_detail` | (multiple) | Top 1 uncommitted transaction query. |
+| `altibase_fullscan_query_detail` | (multiple) | Top 1 full-scan query. |
 
-
-Metrics that are per-entity (per table, file, event, etc.) have corresponding labels; detail metrics expose multiple labels (session_id, tx_id, query, etc.). See `/metrics` output for exact label names.
+Replication metrics align with the [Altibase Replication Manual](https://docs.altibase.com/). See `/metrics` for exact label names.
 
 ---
 
@@ -110,7 +140,7 @@ Metrics that are per-entity (per table, file, event, etc.) have corresponding la
 Use a YAML **queries file** to run your own SQL and expose results as gauges.
 
 - Set path with `ALTIBASE_QUERIES_FILE` or `-altibase.queries-file` (e.g. `ALTIBASE_QUERIES_FILE=examples/queries.yaml`).
-- Format: see `examples/queries.yaml` — each entry has **name**, **help**, **sql** (numeric `value` column), optional **label_columns**.
+- Format: see [examples/queries.yaml](examples/queries.yaml) — each entry has **name**, **help**, **sql** (numeric `value` column), optional **label_columns**.
 - Custom metric names must not clash with built-in `altibase_*`.
 - If the file is missing or path empty, only built-in metrics are collected.
 
@@ -118,16 +148,7 @@ Use a YAML **queries file** to run your own SQL and expose results as gauges.
 
 ## Prometheus configuration
 
-Add a scrape config so Prometheus collects metrics from the exporter:
-
-```yaml
-scrape_configs:
-  - job_name: 'altibase-exporter'
-    static_configs:
-      - targets: ['<exporter-host>:9399']
-```
-
-Replace `<exporter-host>` with the host or IP where the exporter is running (e.g. `localhost:9399` for local, or the k8s service name in-cluster).
+[examples/prometheus/prometheus.yml](examples/prometheus/prometheus.yml) contains `rule_files` (alert rules) and a scrape config. Use it as-is from the repo root or merge into your `prometheus.yml`. Replace `<exporter-host>` with the exporter host or IP (e.g. `localhost` or Kubernetes service name).
 
 ---
 
@@ -173,7 +194,7 @@ docker rm altibase-exporter
 
 ## Kubernetes
 
-Example manifests are in the `examples/k8s/` directory. The exporter runs as a Deployment; connection settings come from a ConfigMap and a Secret. The deployment uses `ghcr.io/f9n/altibase-exporter:latest` by default (or use a release tag, e.g. `:v1.0.0`).
+Example manifests are in the [examples/k8s/](examples/k8s/) directory. The exporter runs as a Deployment; connection settings come from a ConfigMap and a Secret. The deployment uses `ghcr.io/f9n/altibase-exporter:latest` by default (or use a release tag, e.g. `:v1.0.0`).
 
 **1. Create the Secret** (use real credentials; do not commit secrets):
 
@@ -185,8 +206,8 @@ kubectl create secret generic altibase-exporter-secret \
 
 **2. Edit and apply manifests:**
 
-- `examples/k8s/configmap.yaml` — set `ALTIBASE_SERVER`, `ALTIBASE_PORT`, `ALTIBASE_DATABASE` (and optionally `WEB_LISTEN_PORT`).
-- `examples/k8s/deployment.yaml` — uses `ghcr.io/f9n/altibase-exporter:latest` by default; change the image/tag if needed.
+- [examples/k8s/configmap.yaml](examples/k8s/configmap.yaml) — set `ALTIBASE_SERVER`, `ALTIBASE_PORT`, `ALTIBASE_DATABASE` (and optionally `WEB_LISTEN_PORT`).
+- [examples/k8s/deployment.yaml](examples/k8s/deployment.yaml) — uses `ghcr.io/f9n/altibase-exporter:latest` by default; change the image/tag if needed.
 
 ```bash
 kubectl apply -f examples/k8s/configmap.yaml
@@ -199,10 +220,10 @@ kubectl apply -f examples/k8s/service.yaml
 
 Pods must be able to reach the Altibase server (e.g. same VPC, or exposed host/port).
 
-**4. Custom queries (optional)** — `examples/k8s/configmap.yaml` includes an optional `queries.yaml` key. To use it, deploy with `examples/k8s/deployment-with-queries.yaml` instead of `examples/k8s/deployment.yaml` (same ConfigMap; that deployment mounts the key as a file and sets `ALTIBASE_QUERIES_FILE`).
+**4. Custom queries (optional)** — [examples/k8s/configmap.yaml](examples/k8s/configmap.yaml) includes an optional `queries.yaml` key. To use it, deploy with [examples/k8s/deployment-with-queries.yaml](examples/k8s/deployment-with-queries.yaml) instead of [examples/k8s/deployment.yaml](examples/k8s/deployment.yaml) (same ConfigMap; that deployment mounts the key as a file and sets `ALTIBASE_QUERIES_FILE`).
 
 ---
 
 ## Grafana
 
-A minimal dashboard is in `examples/grafana/dashboard.json`.
+A minimal dashboard is in [examples/grafana/dashboard.json](examples/grafana/dashboard.json).

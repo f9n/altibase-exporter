@@ -10,6 +10,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.HashMap;
 
 import io.prometheus.metrics.model.registry.MultiCollector;
 import io.prometheus.metrics.model.snapshots.GaugeSnapshot;
@@ -181,6 +182,42 @@ public final class AltibaseCollector implements MultiCollector {
         ctx.addGauge("statements", Labels.of("status", "active"), activeStatements);
     }
 
+    @ScrapeMetric(value = "sessions_by_user", catchSchemaError = true)
+    private void scrapeSessionsByUser(ScrapeContext ctx) throws SQLException {
+        // V$SESSION: DB_USERNAME, DB_USERID (Altibase 7.x)
+        String sql = """
+            SELECT COALESCE(S.DB_USERNAME, 'UNKNOWN'), COUNT(*), SUM(CASE WHEN S.ACTIVE_FLAG = 1 THEN 1 ELSE 0 END) \
+            FROM V$SESSION S GROUP BY COALESCE(S.DB_USERNAME, 'UNKNOWN')
+            """;
+        try (ResultSet rs = ctx.statement().executeQuery(sql)) {
+            while (rs.next()) {
+                String userName = nullToEmpty(rs.getString(1));
+                long total = rs.getLong(2);
+                long active = rs.getLong(3);
+                ctx.addGauge("sessions_by_user", Labels.of("user_name", userName, "status", "total"), total);
+                ctx.addGauge("sessions_by_user", Labels.of("user_name", userName, "status", "active"), active);
+            }
+        }
+    }
+
+    @ScrapeMetric(value = "statements_by_user", catchSchemaError = true)
+    private void scrapeStatementsByUser(ScrapeContext ctx) throws SQLException {
+        String sql = """
+            SELECT COALESCE(S.DB_USERNAME, 'UNKNOWN'), COUNT(*), SUM(CASE WHEN ST.EXECUTE_FLAG = 1 THEN 1 ELSE 0 END) \
+            FROM V$STATEMENT ST JOIN V$SESSION S ON ST.SESSION_ID = S.ID \
+            GROUP BY COALESCE(S.DB_USERNAME, 'UNKNOWN')
+            """;
+        try (ResultSet rs = ctx.statement().executeQuery(sql)) {
+            while (rs.next()) {
+                String userName = nullToEmpty(rs.getString(1));
+                long total = rs.getLong(2);
+                long active = rs.getLong(3);
+                ctx.addGauge("statements_by_user", Labels.of("user_name", userName, "status", "total"), total);
+                ctx.addGauge("statements_by_user", Labels.of("user_name", userName, "status", "active"), active);
+            }
+        }
+    }
+
     @ScrapeMetric({"memstat_max_total_bytes", "memstat_alloc_bytes"})
     private void scrapeMemstatTotals(ScrapeContext ctx) throws SQLException {
         try (ResultSet rs = ctx.statement().executeQuery("SELECT SUM(MAX_TOTAL_SIZE), SUM(ALLOC_SIZE) FROM V$MEMSTAT")) {
@@ -229,6 +266,119 @@ public final class AltibaseCollector implements MultiCollector {
     private void scrapeReplicationReceiverCount(ScrapeContext ctx) throws SQLException {
         long repReceiver = queryLong(ctx, "SELECT COUNT(*) FROM V$REPRECEIVER");
         ctx.addGauge("replication_receiver_count", repReceiver);
+    }
+
+    @ScrapeMetric(value = {"replication_peer", "replication_sender_xsn", "replication_sender_commit_xsn", "replication_sender_net_error_flag"})
+    private void scrapeReplicationPeer(ScrapeContext ctx) throws SQLException {
+        scrapeReplicationSender(ctx);
+        scrapeReplicationReceiver(ctx);
+    }
+
+    /** One query to V$REPSENDER: peer + XSN/COMMIT_XSN/NET_ERROR_FLAG when columns exist; fallback to peer-only. */
+    private void scrapeReplicationSender(ScrapeContext ctx) throws SQLException {
+        String fullPeer = "SELECT REP_NAME, PEER_IP, PEER_PORT, STATUS, REPL_MODE, XSN, COMMIT_XSN, NET_ERROR_FLAG FROM V$REPSENDER";
+        String fullRemote = "SELECT REP_NAME, REMOTE_IP, REMOTE_REP_PORT, STATUS, REPL_MODE, XSN, COMMIT_XSN, NET_ERROR_FLAG FROM V$REPSENDER";
+        try (ResultSet rs = ctx.statement().executeQuery(fullPeer)) {
+            while (rs.next()) addReplicationSenderRowWithDetail(ctx, rs);
+            return;
+        } catch (SQLException e) {
+            if (!isColumnNotFound(e)) throw e;
+        }
+        try (ResultSet rs = ctx.statement().executeQuery(fullRemote)) {
+            while (rs.next()) addReplicationSenderRowWithDetail(ctx, rs);
+            return;
+        } catch (SQLException e) {
+            if (!isColumnNotFound(e)) throw e;
+        }
+        String peerOnly = "SELECT REP_NAME, PEER_IP, PEER_PORT, STATUS, REPL_MODE FROM V$REPSENDER";
+        String remoteOnly = "SELECT REP_NAME, REMOTE_IP, REMOTE_REP_PORT, STATUS, REPL_MODE FROM V$REPSENDER";
+        String peerNoMode = "SELECT REP_NAME, PEER_IP, PEER_PORT, STATUS FROM V$REPSENDER";
+        String remoteNoMode = "SELECT REP_NAME, REMOTE_IP, REMOTE_REP_PORT, STATUS FROM V$REPSENDER";
+        try (ResultSet rs = ctx.statement().executeQuery(peerOnly)) {
+            while (rs.next()) addReplicationPeerRow(ctx, rs, "sender", "master", true, true);
+            return;
+        } catch (SQLException e) {
+            if (!isColumnNotFound(e)) throw e;
+        }
+        try (ResultSet rs = ctx.statement().executeQuery(remoteOnly)) {
+            while (rs.next()) addReplicationPeerRow(ctx, rs, "sender", "master", true, true);
+            return;
+        } catch (SQLException e) {
+            if (!isColumnNotFound(e)) throw e;
+        }
+        try (ResultSet rs = ctx.statement().executeQuery(peerNoMode)) {
+            while (rs.next()) addReplicationPeerRow(ctx, rs, "sender", "master", true, false);
+        } catch (SQLException e) {
+            if (!isColumnNotFound(e)) throw e;
+            try (ResultSet rs = ctx.statement().executeQuery(remoteNoMode)) {
+                while (rs.next()) addReplicationPeerRow(ctx, rs, "sender", "master", true, false);
+            }
+        }
+    }
+
+    /** Row has 8 columns: REP_NAME, IP, PORT, STATUS, REPL_MODE, XSN, COMMIT_XSN, NET_ERROR_FLAG. */
+    private void addReplicationSenderRowWithDetail(ScrapeContext ctx, ResultSet rs) throws SQLException {
+        String repName = nullToEmpty(rs.getString(1)).trim();
+        String peer = peerString(rs.getString(2), rs.getObject(3));
+        String status = senderStatusLabel(rs.getInt(4));
+        String mode = "unknown";
+        String m = rs.getString(5);
+        if (m != null && !(m = m.trim()).isEmpty()) mode = m.toLowerCase();
+        if (!repName.isEmpty() || !peer.isEmpty())
+            ctx.addGauge("replication_peer", Labels.of("replication", repName, "role", "sender", "instance_role", "master", "status", status, "mode", mode, "peer", peer), 1);
+        Labels labels = Labels.of("replication", repName);
+        ctx.addGauge("replication_sender_xsn", labels, rs.getLong(6));
+        ctx.addGauge("replication_sender_commit_xsn", labels, rs.getLong(7));
+        ctx.addGauge("replication_sender_net_error_flag", labels, rs.getLong(8));
+    }
+
+    private void scrapeReplicationReceiver(ScrapeContext ctx) throws SQLException {
+        String receiverSqlRemote = "SELECT REP_NAME, REMOTE_IP, REMOTE_REP_PORT FROM V$REPRECEIVER";
+        String receiverSqlPeer = "SELECT REP_NAME, PEER_IP, PEER_PORT FROM V$REPRECEIVER";
+        try (ResultSet rs = ctx.statement().executeQuery(receiverSqlRemote)) {
+            while (rs.next()) addReplicationPeerRow(ctx, rs, "receiver", "slave", false, false);
+        } catch (SQLException e) {
+            if (!isColumnNotFound(e)) throw e;
+            try (ResultSet rs = ctx.statement().executeQuery(receiverSqlPeer)) {
+                while (rs.next()) addReplicationPeerRow(ctx, rs, "receiver", "slave", false, false);
+            }
+        }
+    }
+
+    private void addReplicationPeerRow(ScrapeContext ctx, ResultSet rs, String role, String instanceRole, boolean hasStatus, boolean hasMode) throws SQLException {
+        String repName = nullToEmpty(rs.getString(1)).trim();
+        String peer = peerString(rs.getString(2), rs.getObject(3));
+        String status = hasStatus ? senderStatusLabel(rs.getInt(4)) : "active";
+        String mode = "unknown";
+        if (hasMode && hasStatus) {
+            String m = rs.getString(5);
+            if (m != null && !(m = m.trim()).isEmpty()) mode = m.toLowerCase();
+        }
+        if (!repName.isEmpty() || !peer.isEmpty())
+            ctx.addGauge("replication_peer", Labels.of("replication", repName, "role", role, "instance_role", instanceRole, "status", status, "mode", mode, "peer", peer), 1);
+    }
+
+    private static boolean isColumnNotFound(SQLException e) {
+        String msg = e.getMessage();
+        return msg != null && (msg.contains("Column not found") || msg.contains("column not found"));
+    }
+
+    /** Maps V$REPSENDER.STATUS: 0=STOP, 1=RUN, 2=RETRY. */
+    private static String senderStatusLabel(int status) {
+        return switch (status) {
+            case 0 -> "stopped";
+            case 1 -> "active";
+            case 2 -> "retry";
+            default -> "unknown";
+        };
+    }
+
+    private static String peerString(String host, Object port) {
+        String h = host != null ? host.trim() : "";
+        String p = port != null ? String.valueOf(port) : "";
+        if (h.isEmpty() && p.isEmpty()) return "";
+        if (p.isEmpty()) return h;
+        return h + ":" + p;
     }
 
     @ScrapeMetric("memory_table_usage_bytes")
@@ -406,6 +556,42 @@ public final class AltibaseCollector implements MultiCollector {
                 String name = rs.getString(1);
                 long alloc = rs.getLong(2);
                 if (name != null) ctx.addGauge("disk_table_usage_bytes_per_table", Labels.of("table_name", name), alloc);
+            }
+        }
+    }
+
+    @ScrapeMetric(value = "table_size_bytes", catchSchemaError = true)
+    private void scrapeTableSize(ScrapeContext ctx) throws SQLException {
+        // Memory tables: schema, table name, tablespace, size. Exclude system (USER_ID=1).
+        String memSql = """
+            SELECT U.USER_NAME, T.TABLE_NAME, TS.NAME AS TBS_NAME, (B.FIXED_ALLOC_MEM + B.VAR_ALLOC_MEM) AS SZ \
+            FROM SYSTEM_.SYS_USERS_ U, SYSTEM_.SYS_TABLES_ T, V$MEMTBL_INFO B, V$TABLESPACES TS \
+            WHERE T.USER_ID = U.USER_ID AND T.TABLE_OID = B.TABLE_OID AND T.TBS_ID = TS.ID AND T.USER_ID != 1
+            """;
+        try (ResultSet rs = ctx.statement().executeQuery(memSql)) {
+            while (rs.next()) {
+                String schema = nullToEmpty(rs.getString(1));
+                String tableName = nullToEmpty(rs.getString(2));
+                String tablespace = nullToEmpty(rs.getString(3));
+                long sizeBytes = rs.getLong(4);
+                if (!tableName.isEmpty())
+                    ctx.addGauge("table_size_bytes", Labels.of("schema", schema, "table_name", tableName, "tablespace", tablespace, "type", "memory"), sizeBytes);
+            }
+        }
+        // Disk tables: schema, table name, tablespace, size (DISK_TOTAL_PAGE_CNT * PAGE_SIZE)
+        String diskSql = """
+            SELECT U.USER_NAME, C.TABLE_NAME, A.NAME AS TBS_NAME, B.DISK_TOTAL_PAGE_CNT * A.PAGE_SIZE AS SZ \
+            FROM V$TABLESPACES A, V$DISKTBL_INFO B, SYSTEM_.SYS_TABLES_ C, SYSTEM_.SYS_USERS_ U \
+            WHERE A.ID = B.TABLESPACE_ID AND B.TABLE_OID = C.TABLE_OID AND C.USER_ID = U.USER_ID AND C.USER_ID != 1
+            """;
+        try (ResultSet rs = ctx.statement().executeQuery(diskSql)) {
+            while (rs.next()) {
+                String schema = nullToEmpty(rs.getString(1));
+                String tableName = nullToEmpty(rs.getString(2));
+                String tablespace = nullToEmpty(rs.getString(3));
+                long sizeBytes = rs.getLong(4);
+                if (!tableName.isEmpty())
+                    ctx.addGauge("table_size_bytes", Labels.of("schema", schema, "table_name", tableName, "tablespace", tablespace, "type", "disk"), sizeBytes);
             }
         }
     }
@@ -660,13 +846,97 @@ public final class AltibaseCollector implements MultiCollector {
         ctx.addGauge("fullscan_query_count", fullscan);
     }
 
-    @ScrapeMetric("replication_gap")
+    /** V$REPGAP: REP_NAME, REP_LAST_SN, REP_SN, REP_GAP, REP_GAP_SIZE as metrics. */
+    @ScrapeMetric(value = {"replication_gap", "replication_gap_size_bytes", "replication_gap_rep_last_sn", "replication_gap_rep_sn"}, catchSchemaError = true)
     private void scrapeReplicationGap(ScrapeContext ctx) throws SQLException {
-        try (ResultSet rs = ctx.statement().executeQuery("SELECT REP_NAME || '_GAP' AS REP_NAME, REP_GAP FROM V$REPGAP")) {
+        String sql = "SELECT REP_NAME, REP_LAST_SN, REP_SN, REP_GAP, REP_GAP_SIZE FROM V$REPGAP";
+        try (ResultSet rs = ctx.statement().executeQuery(sql)) {
             while (rs.next()) {
                 String name = rs.getString(1);
-                long gap = rs.getLong(2);
-                if (name != null) ctx.addGauge("replication_gap", Labels.of("replication", name), gap);
+                if (name == null) continue;
+                name = name.trim();
+                Labels labels = Labels.of("replication", name);
+                ctx.addGauge("replication_gap_rep_last_sn", labels, rs.getLong(2));
+                ctx.addGauge("replication_gap_rep_sn", labels, rs.getLong(3));
+                ctx.addGauge("replication_gap", labels, rs.getLong(4));
+                ctx.addGauge("replication_gap_size_bytes", labels, rs.getLong(5));
+            }
+        }
+    }
+
+    /** SYSTEM_.SYS_JOBS_: job state, exec count, error code (STATE 0=idle, 1=executing). */
+    @ScrapeMetric(value = {"job_state", "job_exec_count", "job_error_code", "job_interval"}, catchSchemaError = true)
+    private void scrapeJobs(ScrapeContext ctx) throws SQLException {
+        String sql = "SELECT JOB_NAME, STATE, EXEC_COUNT, ERROR_CODE, INTERVAL FROM SYSTEM_.SYS_JOBS_";
+        try (ResultSet rs = ctx.statement().executeQuery(sql)) {
+            while (rs.next()) {
+                String jobName = nullToEmpty(rs.getString(1)).trim();
+                if (jobName.isEmpty()) continue;
+                Labels labels = Labels.of("job_name", jobName);
+                ctx.addGauge("job_state", labels, rs.getLong(2));
+                ctx.addGauge("job_exec_count", labels, rs.getLong(3));
+                ctx.addGauge("job_error_code", labels, rs.getLong(4));
+                ctx.addGauge("job_interval", labels, rs.getLong(5));
+            }
+        }
+    }
+
+    /** V$REPRECEIVER: APPLY_XSN per replication. */
+    @ScrapeMetric(value = "replication_receiver_apply_xsn", catchSchemaError = true)
+    private void scrapeReplicationReceiverApplyXsn(ScrapeContext ctx) throws SQLException {
+        try (ResultSet rs = ctx.statement().executeQuery("SELECT TRIM(REP_NAME), APPLY_XSN FROM V$REPRECEIVER")) {
+            while (rs.next()) {
+                String name = nullToEmpty(rs.getString(1)).trim();
+                if (!name.isEmpty()) ctx.addGauge("replication_receiver_apply_xsn", Labels.of("replication", name), rs.getLong(2));
+            }
+        }
+    }
+
+    /** Disk tablespace: V$DATAFILES + V$TABLESPACES, summed per tablespace (CURRSIZE, MAXSIZE, usage %). */
+    @ScrapeMetric(value = {"tablespace_disk_curr_bytes", "tablespace_disk_max_bytes", "tablespace_disk_usage_ratio"}, catchSchemaError = true)
+    private void scrapeTablespaceDisk(ScrapeContext ctx) throws SQLException {
+        String sql = "SELECT V.NAME, SUM(D.CURRSIZE), SUM(DECODE(D.MAXSIZE, 0, D.CURRSIZE, D.MAXSIZE)) FROM V$DATAFILES D, V$TABLESPACES V WHERE D.SPACEID = V.ID GROUP BY V.NAME";
+        try (ResultSet rs = ctx.statement().executeQuery(sql)) {
+            while (rs.next()) {
+                String name = nullToEmpty(rs.getString(1)).trim();
+                if (name.isEmpty()) continue;
+                Labels labels = Labels.of("tbs_name", name);
+                long curr = rs.getLong(2);
+                long max = rs.getLong(3);
+                ctx.addGauge("tablespace_disk_curr_bytes", labels, curr);
+                ctx.addGauge("tablespace_disk_max_bytes", labels, max);
+                double ratio = (max > 0) ? (curr * 1.0 / max) : 0;
+                ctx.addGauge("tablespace_disk_usage_ratio", labels, ratio);
+            }
+        }
+    }
+
+    /** SYSTEM_.SYS_REPL_ITEMS_: replication target items (1 per replication, local_user, local_table). */
+    @ScrapeMetric(value = "replication_item", catchSchemaError = true)
+    private void scrapeReplicationItems(ScrapeContext ctx) throws SQLException {
+        String sql = "SELECT REPLICATION_NAME, LOCAL_USER_NAME, LOCAL_TABLE_NAME FROM SYSTEM_.SYS_REPL_ITEMS_";
+        try (ResultSet rs = ctx.statement().executeQuery(sql)) {
+            while (rs.next()) {
+                String rep = nullToEmpty(rs.getString(1)).trim();
+                String user = nullToEmpty(rs.getString(2)).trim();
+                String table = nullToEmpty(rs.getString(3)).trim();
+                ctx.addGauge("replication_item", Labels.of("replication", rep, "local_user", user, "local_table", table), 1);
+            }
+        }
+    }
+
+    /** SYSTEM_.SYS_USERS_: password policy (life time, lock time, reuse, failed login attempts). */
+    @ScrapeMetric(value = {"user_password_life_time", "user_password_lock_time", "user_failed_login_attempts"}, catchSchemaError = true)
+    private void scrapeUserPasswordPolicy(ScrapeContext ctx) throws SQLException {
+        String sql = "SELECT USER_NAME, PASSWORD_LIFE_TIME, PASSWORD_LOCK_TIME, FAILED_LOGIN_ATTEMPTS FROM SYSTEM_.SYS_USERS_";
+        try (ResultSet rs = ctx.statement().executeQuery(sql)) {
+            while (rs.next()) {
+                String user = nullToEmpty(rs.getString(1)).trim();
+                if (user.isEmpty()) continue;
+                Labels labels = Labels.of("user_name", user);
+                ctx.addGauge("user_password_life_time", labels, rs.getLong(2));
+                ctx.addGauge("user_password_lock_time", labels, rs.getLong(3));
+                ctx.addGauge("user_failed_login_attempts", labels, rs.getLong(4));
             }
         }
     }
@@ -698,9 +968,125 @@ public final class AltibaseCollector implements MultiCollector {
         }
     }
 
+    /** V$PROPERTY: server configuration (like pg_settings). Disable with ALTIBASE_DISABLED_METRICS=property. */
+    @ScrapeMetric(value = "property", catchSchemaError = true)
+    private void scrapeProperty(ScrapeContext ctx) throws SQLException {
+        try (ResultSet rs = ctx.statement().executeQuery("SELECT NAME, VALUE1 FROM V$PROPERTY")) {
+            while (rs.next()) {
+                String name = nullToEmpty(rs.getString(1)).trim();
+                if (name.isEmpty()) continue;
+                String valueStr = nullToEmpty(rs.getString(2)).trim();
+                ctx.addGauge("property", Labels.of("name", name, "value", valueStr), 1);
+            }
+        }
+    }
+
     private long queryLong(ScrapeContext ctx, String sql) throws SQLException {
         try (ResultSet rs = ctx.statement().executeQuery(sql)) {
             return rs.next() ? rs.getLong(1) : 0;
+        }
+    }
+
+    /** Sequence usage: current value, usage ratio, min/max, cycle, cache. Uses SYS_REPL_ITEMS_ (replicated sequences) and SYS_SEQUENCES_. */
+    @ScrapeMetric(value = {"sequence_current_value", "sequence_usage_ratio", "sequence_min_value", "sequence_max_value", "sequence_cycle", "sequence_cache"}, catchSchemaError = true)
+    private void scrapeSequenceUsage(ScrapeContext ctx) throws SQLException {
+        Map<String, Long> maxBySeq = new HashMap<>();
+        Map<String, Long> minBySeq = new HashMap<>();
+        Map<String, Integer> cycleBySeq = new HashMap<>();
+        Map<String, Long> cacheBySeq = new HashMap<>();
+        try (ResultSet rs = ctx.statement().executeQuery(
+                "SELECT USER_NAME, SEQUENCE_NAME, MIN_VALUE, MAX_VALUE, CYCLE, CACHE_SIZE FROM SYSTEM_.SYS_SEQUENCES_")) {
+            while (rs.next()) {
+                String user = nullToEmpty(rs.getString(1)).trim();
+                String seq = nullToEmpty(rs.getString(2)).trim();
+                if (user.isEmpty() || seq.isEmpty()) continue;
+                String key = user + "." + seq;
+                try { minBySeq.put(key, rs.getLong(3)); } catch (SQLException ignored) { }
+                long maxVal = rs.getLong(4);
+                if (maxVal > 0) maxBySeq.put(key, maxVal);
+                try {
+                    Object c = rs.getObject(5);
+                    int cycle = 0;
+                    if (c instanceof Number) cycle = ((Number) c).intValue() != 0 ? 1 : 0;
+                    else if (c != null) cycle = "Y".equalsIgnoreCase(String.valueOf(c).trim()) ? 1 : 0;
+                    cycleBySeq.put(key, cycle);
+                } catch (SQLException ignored) { }
+                try {
+                    long cacheSize = rs.getLong(6);
+                    if (!rs.wasNull()) cacheBySeq.put(key, cacheSize);
+                } catch (SQLException ignored) { }
+            }
+        } catch (SQLException e) {
+            try (ResultSet rs = ctx.statement().executeQuery(
+                    "SELECT USER_NAME, SEQUENCE_NAME, MIN_VALUE, MAX_VALUE, CYCLE FROM SYSTEM_.SYS_SEQUENCES_")) {
+                while (rs.next()) {
+                    String user = nullToEmpty(rs.getString(1)).trim();
+                    String seq = nullToEmpty(rs.getString(2)).trim();
+                    if (user.isEmpty() || seq.isEmpty()) continue;
+                    String key = user + "." + seq;
+                    try { minBySeq.put(key, rs.getLong(3)); } catch (SQLException ignored) { }
+                    long maxVal = rs.getLong(4);
+                    if (maxVal > 0) maxBySeq.put(key, maxVal);
+                    try {
+                        Object c = rs.getObject(5);
+                        int cycle = 0;
+                        if (c instanceof Number) cycle = ((Number) c).intValue() != 0 ? 1 : 0;
+                        else if (c != null) cycle = "Y".equalsIgnoreCase(String.valueOf(c).trim()) ? 1 : 0;
+                        cycleBySeq.put(key, cycle);
+                    } catch (SQLException ignored) { }
+                }
+            } catch (SQLException e2) {
+                try (ResultSet rs = ctx.statement().executeQuery(
+                        "SELECT USER_NAME, SEQUENCE_NAME, MAX_VALUE FROM SYSTEM_.SYS_SEQUENCES_")) {
+                    while (rs.next()) {
+                        String user = nullToEmpty(rs.getString(1)).trim();
+                        String seq = nullToEmpty(rs.getString(2)).trim();
+                        if (user.isEmpty() || seq.isEmpty()) continue;
+                        long maxVal = rs.getLong(3);
+                        if (maxVal > 0) maxBySeq.put(user + "." + seq, maxVal);
+                    }
+                } catch (SQLException e3) {
+                    log.debug("SYS_SEQUENCES_ not available or different schema: {}", e.getMessage());
+                }
+            }
+        }
+        // Altibase standard: sequence sync tables in replication are named SEQUENCE_NAME$SEQ (SYS_REPL_ITEMS_.LOCAL_TABLE_NAME)
+        String sql = "SELECT LOCAL_USER_NAME, LOCAL_TABLE_NAME FROM SYSTEM_.SYS_REPL_ITEMS_ WHERE UPPER(LOCAL_TABLE_NAME) LIKE '%$SEQ%'";
+        try (ResultSet rs = ctx.statement().executeQuery(sql)) {
+            int count = 0;
+            final int maxSequences = 100;
+            while (rs.next() && count < maxSequences) {
+                String schema = nullToEmpty(rs.getString(1)).trim();
+                String tableName = nullToEmpty(rs.getString(2)).trim();
+                if (schema.isEmpty() || tableName.isEmpty()) continue;
+                long current;
+                try {
+                    String q = "SELECT LAST_SYNC_SEQ FROM \"" + schema.replace("\"", "\"\"") + "\".\"" + tableName.replace("\"", "\"\"") + "\"";
+                    try (ResultSet inner = ctx.statement().executeQuery(q)) {
+                        current = inner.next() ? inner.getLong(1) : 0;
+                    }
+                } catch (SQLException e) {
+                    log.trace("Sequence {}.\"{}\": {}", schema, tableName, e.getMessage());
+                    continue;
+                }
+                count++;
+                String baseName = tableName.replaceAll("\\$[sS][eE][qQ]$", "");
+                Labels labels = Labels.of("schema", schema, "sequence", baseName);
+                ctx.addGauge("sequence_current_value", labels, current);
+                String key = schema + "." + baseName;
+                Long maxVal = maxBySeq.get(key);
+                Long minVal = minBySeq.get(key);
+                Integer cycle = cycleBySeq.get(key);
+                if (maxVal != null && maxVal > 0) {
+                    double ratio = Math.min(1.0, (double) current / maxVal);
+                    ctx.addGauge("sequence_usage_ratio", labels, ratio);
+                }
+                if (minVal != null) ctx.addGauge("sequence_min_value", labels, minVal);
+                if (maxVal != null) ctx.addGauge("sequence_max_value", labels, maxVal);
+                if (cycle != null) ctx.addGauge("sequence_cycle", labels, cycle);
+                Long cacheSize = cacheBySeq.get(key);
+                if (cacheSize != null) ctx.addGauge("sequence_cache", labels, cacheSize);
+            }
         }
     }
 }
