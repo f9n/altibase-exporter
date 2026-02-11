@@ -1,7 +1,8 @@
 # Example custom queries for the Altibase exporter.
 # Use with: ALTIBASE_QUERIES_FILE=examples/queries.yaml (or copy and edit this file).
 # Each query runs at scrape time; result rows become Prometheus gauge data points.
-# Required fields per query: name, help, sql. Optional: label_columns.
+# Required: name, help, sql. Optional: label_columns.
+# Use qualified table names (e.g. SCHEMA.TABLE) if tables are in another schema.
 # Metric names are always prefixed with "altibase_custom_" (e.g. name: ping → altibase_custom_ping).
 
 queries:

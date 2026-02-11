@@ -1358,7 +1358,7 @@
           },
           "mappings": [],
           "thresholds": null,
-          "unit": "s"
+          "unit": "short"
         },
         "overrides": []
       },
@@ -1394,11 +1394,11 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "max(altibase_trigger_seconds_since_processed{instance=~\"$instance\"}) or vector(0)",
+          "expr": "altibase_trigger_count{schema=\"total\", instance=~\"$instance\"} or vector(0)",
           "refId": "A"
         }
       ],
-      "title": "Max trigger lag",
+      "title": "Trigger count",
       "type": "stat"
     },
     {
@@ -3729,7 +3729,7 @@
           "color": {
             "mode": "palette-classic"
           },
-          "unit": "s"
+          "unit": "short"
         },
         "overrides": []
       },
@@ -3759,12 +3759,12 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "altibase_trigger_seconds_since_processed{instance=~\"$instance\"}",
-          "legendFormat": "{{trigger_name}} - {{instance}}",
+          "expr": "altibase_trigger_count{schema!=\"total\", instance=~\"$instance\"}",
+          "legendFormat": "{{schema}} - {{instance}}",
           "refId": "A"
         }
       ],
-      "title": "Trigger lag (seconds since processed)",
+      "title": "Trigger count (by schema)",
       "type": "timeseries"
     },
     {

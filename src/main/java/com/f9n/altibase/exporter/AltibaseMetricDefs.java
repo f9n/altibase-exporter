@@ -100,7 +100,7 @@ public final class AltibaseMetricDefs {
             Map.entry("lock_table", "Locked tables (V$LOCK + SYS_TABLES_); one series per lock; labels table_name, trans_id, lock_desc; value 1."),
             Map.entry("property", "Server configuration from V$PROPERTY (like pg_settings); labels name, value."),
             Map.entry("transaction_manager_count", "V$TRANSACTION_MGR total and active count; label status: total, active."),
-            Map.entry("trigger_seconds_since_processed", "Seconds since each trigger was last processed (TRIGGER_PROCESSED); label trigger_name. Use in alerts with your own threshold.")
+            Map.entry("trigger_count", "Trigger count from SYSTEM_.SYS_TRIGGERS_: total (schema=total) and per schema (schema=user name).")
     );
 
     public static String help(String key) {
