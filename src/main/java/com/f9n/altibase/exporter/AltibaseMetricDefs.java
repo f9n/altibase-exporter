@@ -94,7 +94,13 @@ public final class AltibaseMetricDefs {
             Map.entry("long_run_query_detail", "Top 1 long-running query (detail labels)."),
             Map.entry("utrans_query_detail", "Top 1 uncommitted transaction query (detail labels)."),
             Map.entry("fullscan_query_detail", "Top 1 full-scan query (detail labels)."),
-            Map.entry("property", "Server configuration from V$PROPERTY (like pg_settings); labels name, value.")
+            Map.entry("index_alloc_size_bytes", "Index allocation size in bytes per index (V$SEGMENT, V$INDEX); labels schema, table_name, tablespace, index_name, index_type."),
+            Map.entry("index_metadata", "Index metadata (SYSTEM_.SYS_INDICES_); labels schema, table_name, index_name, index_id, tablespace, is_unique, column_cnt; value 1."),
+            Map.entry("index_information_mem", "Index info for memory table and queue (V$INDEX, V$MEM_TABLESPACES); labels schema, object_type, object_name, tablespace, index_name, index_type; value 1."),
+            Map.entry("lock_table", "Locked tables (V$LOCK + SYS_TABLES_); one series per lock; labels table_name, trans_id, lock_desc; value 1."),
+            Map.entry("property", "Server configuration from V$PROPERTY (like pg_settings); labels name, value."),
+            Map.entry("transaction_manager_count", "V$TRANSACTION_MGR total and active count; label status: total, active."),
+            Map.entry("trigger_seconds_since_processed", "Seconds since each trigger was last processed (TRIGGER_PROCESSED); label trigger_name. Use in alerts with your own threshold.")
     );
 
     public static String help(String key) {

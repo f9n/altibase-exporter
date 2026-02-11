@@ -166,6 +166,32 @@ public final class AltibaseCollector implements MultiCollector {
         ctx.addGauge("instance_working_time_seconds", workingTime);
     }
 
+    @ScrapeMetric(value = "transaction_manager_count", catchSchemaError = true)
+    private void scrapeTransactionManagerCount(ScrapeContext ctx) throws SQLException {
+        try (ResultSet rs = ctx.statement().executeQuery("SELECT TOTAL_COUNT, ACTIVE_COUNT FROM V$TRANSACTION_MGR")) {
+            if (rs.next()) {
+                long total = rs.getLong(1);
+                long active = rs.getLong(2);
+                ctx.addGauge("transaction_manager_count", Labels.of("status", "total"), total);
+                ctx.addGauge("transaction_manager_count", Labels.of("status", "active"), active);
+            }
+        }
+    }
+
+    /** Seconds since each trigger was last processed; use in Prometheus alerts with your own thresholds. */
+    @ScrapeMetric(value = "trigger_seconds_since_processed", catchSchemaError = true)
+    private void scrapeTriggerSecondsSinceProcessed(ScrapeContext ctx) throws SQLException {
+        String sql = "SELECT TRIGGER_NAME, (SYSDATE - LAST_PROCESSED) * 86400 AS SECONDS_AGO FROM TRIGGER_PROCESSED";
+        try (ResultSet rs = ctx.statement().executeQuery(sql)) {
+            while (rs.next()) {
+                String triggerName = nullToEmpty(rs.getString(1));
+                double secondsAgo = rs.getDouble(2);
+                if (!triggerName.isEmpty() && !Double.isNaN(secondsAgo))
+                    ctx.addGauge("trigger_seconds_since_processed", Labels.of("trigger_name", triggerName), Math.max(0, secondsAgo));
+            }
+        }
+    }
+
     @ScrapeMetric("sessions")
     private void scrapeSessions(ScrapeContext ctx) throws SQLException {
         long totalSessions = queryLong(ctx, "SELECT COUNT(*) FROM V$SESSION");
@@ -623,6 +649,79 @@ public final class AltibaseCollector implements MultiCollector {
         }
     }
 
+    @ScrapeMetric(value = "index_alloc_size_bytes", catchSchemaError = true)
+    private void scrapeIndexAllocSize(ScrapeContext ctx) throws SQLException {
+        String sql = """
+            SELECT C.USER_NAME, F.TABLE_NAME, D.NAME AS TBS_NAME, E.INDEX_NAME, DECODE(E.INDEX_TYPE, 1, 'B-TREE', 'R-TREE') AS INDEX_TYPE, \
+            D.EXTENT_PAGE_COUNT * D.PAGE_SIZE * A.EXTENT_TOTAL_COUNT AS ALLOC_BYTES \
+            FROM V$SEGMENT A, V$INDEX B, V$TABLESPACES D, SYSTEM_.SYS_USERS_ C, SYSTEM_.SYS_INDICES_ E, SYSTEM_.SYS_TABLES_ F \
+            WHERE A.SEGMENT_PID = B.INDEX_SEG_PID AND B.INDEX_ID = E.INDEX_ID AND E.USER_ID = C.USER_ID AND A.SPACE_ID = D.ID AND F.TBS_ID = D.ID \
+            AND A.SEGMENT_TYPE = 'INDEX' AND F.USER_ID = E.USER_ID AND F.TABLE_OID = B.TABLE_OID
+            """;
+        try (ResultSet rs = ctx.statement().executeQuery(sql)) {
+            while (rs.next()) {
+                String schema = nullToEmpty(rs.getString(1));
+                String tableName = nullToEmpty(rs.getString(2));
+                String tbsName = nullToEmpty(rs.getString(3));
+                String indexName = nullToEmpty(rs.getString(4));
+                String indexType = nullToEmpty(rs.getString(5));
+                long allocBytes = rs.getLong(6);
+                if (!isDisabled("index_alloc_size_bytes"))
+                    ctx.addGauge("index_alloc_size_bytes", Labels.of("schema", schema, "table_name", tableName, "tablespace", tbsName, "index_name", indexName, "index_type", indexType), allocBytes);
+            }
+        }
+    }
+
+    @ScrapeMetric(value = "index_metadata", catchSchemaError = true)
+    private void scrapeIndexMetadata(ScrapeContext ctx) throws SQLException {
+        String sql = """
+            SELECT A.USER_NAME, B.TABLE_NAME, C.INDEX_NAME, C.INDEX_ID, NVL(D.NAME, 'SYS_TBS_MEMORY') AS TBS_NAME, C.IS_UNIQUE, C.COLUMN_CNT \
+            FROM SYSTEM_.SYS_USERS_ A, SYSTEM_.SYS_TABLES_ B, SYSTEM_.SYS_INDICES_ C LEFT OUTER JOIN V$TABLESPACES D ON C.TBS_ID = D.ID \
+            WHERE A.USER_NAME <> 'SYSTEM_' AND B.TABLE_TYPE = 'T' AND C.TABLE_ID = B.TABLE_ID AND C.USER_ID = A.USER_ID \
+            ORDER BY B.TABLE_NAME, C.INDEX_NAME
+            """;
+        try (ResultSet rs = ctx.statement().executeQuery(sql)) {
+            while (rs.next()) {
+                String schema = nullToEmpty(rs.getString(1));
+                String tableName = nullToEmpty(rs.getString(2));
+                String indexName = nullToEmpty(rs.getString(3));
+                String indexId = getColumnAsString(rs, 4);
+                String tbsName = nullToEmpty(rs.getString(5));
+                String isUnique = getColumnAsString(rs, 6);
+                String columnCnt = getColumnAsString(rs, 7);
+                if (!isDisabled("index_metadata"))
+                    ctx.addGauge("index_metadata", Labels.of("schema", schema, "table_name", tableName, "index_name", indexName, "index_id", indexId, "tablespace", tbsName, "is_unique", isUnique, "column_cnt", columnCnt), 1);
+            }
+        }
+    }
+
+    /** Reads a column as string so both numeric and char (e.g. IS_UNIQUE 'T'/'F') work across Altibase versions. */
+    private static String getColumnAsString(ResultSet rs, int columnIndex) throws SQLException {
+        Object o = rs.getObject(columnIndex);
+        return o != null ? o.toString().trim() : "";
+    }
+
+    @ScrapeMetric(value = "index_information_mem", catchSchemaError = true)
+    private void scrapeIndexInformationMem(ScrapeContext ctx) throws SQLException {
+        String sql = """
+            SELECT C.USER_NAME, DECODE(F.TABLE_TYPE, 'Q', 'QUEUE', 'T', 'TABLE') AS OBJECT_TYPE, F.TABLE_NAME AS OBJECT_NAME, D.SPACE_NAME AS TABLESPACE_NAME, E.INDEX_NAME, DECODE(E.INDEX_TYPE, 1, 'B-TREE', 'R-TREE') AS INDEX_TYPE \
+            FROM V$INDEX B, SYSTEM_.SYS_USERS_ C, V$MEM_TABLESPACES D, SYSTEM_.SYS_INDICES_ E, SYSTEM_.SYS_TABLES_ F \
+            WHERE B.INDEX_ID = E.INDEX_ID AND E.USER_ID = C.USER_ID AND F.USER_ID = E.USER_ID AND F.TBS_ID = D.SPACE_ID AND F.TABLE_OID = B.TABLE_OID AND C.USER_NAME <> 'SYSTEM_'
+            """;
+        try (ResultSet rs = ctx.statement().executeQuery(sql)) {
+            while (rs.next()) {
+                String schema = nullToEmpty(rs.getString(1));
+                String objectType = nullToEmpty(rs.getString(2));
+                String objectName = nullToEmpty(rs.getString(3));
+                String tablespace = nullToEmpty(rs.getString(4));
+                String indexName = nullToEmpty(rs.getString(5));
+                String indexType = nullToEmpty(rs.getString(6));
+                if (!isDisabled("index_information_mem"))
+                    ctx.addGauge("index_information_mem", Labels.of("schema", schema, "object_type", objectType, "object_name", objectName, "tablespace", tablespace, "index_name", indexName, "index_type", indexType), 1);
+            }
+        }
+    }
+
     @ScrapeMetric("lock_hold_detail")
     private void scrapeLockHoldInfo(ScrapeContext ctx) throws SQLException {
         String sql = """
@@ -817,6 +916,19 @@ public final class AltibaseCollector implements MultiCollector {
         }
         if (!isDisabled("lock_hold_count")) ctx.addGauge("lock_hold_count", hold);
         if (!isDisabled("lock_wait_count")) ctx.addGauge("lock_wait_count", wait);
+    }
+
+    @ScrapeMetric(value = "lock_table", catchSchemaError = true)
+    private void scrapeLockTableList(ScrapeContext ctx) throws SQLException {
+        String sql = "SELECT A.TABLE_NAME, B.TRANS_ID, B.LOCK_DESC FROM SYSTEM_.SYS_TABLES_ A, V$LOCK B WHERE A.TABLE_OID = B.TABLE_OID";
+        try (ResultSet rs = ctx.statement().executeQuery(sql)) {
+            while (rs.next()) {
+                String tableName = nullToEmpty(rs.getString(1));
+                long transId = rs.getLong(2);
+                String lockDesc = nullToEmpty(rs.getString(3));
+                ctx.addGauge("lock_table", Labels.of("table_name", tableName, "trans_id", String.valueOf(transId), "lock_desc", lockDesc), 1);
+            }
+        }
     }
 
     @ScrapeMetric("long_run_query_count")

@@ -9,7 +9,7 @@ application {
 }
 
 group = 'com.f9n'
-version = '0.1.0'
+version = project.hasProperty('releaseVersion') ? project.property('releaseVersion') : '0.1.0-dev'
 
 java {
     sourceCompatibility = JavaVersion.VERSION_25
