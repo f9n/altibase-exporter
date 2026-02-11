@@ -178,16 +178,18 @@ public final class AltibaseCollector implements MultiCollector {
         }
     }
 
-    /** Seconds since each trigger was last processed; use in Prometheus alerts with your own thresholds. */
-    @ScrapeMetric(value = "trigger_seconds_since_processed", catchSchemaError = true)
-    private void scrapeTriggerSecondsSinceProcessed(ScrapeContext ctx) throws SQLException {
-        String sql = "SELECT TRIGGER_NAME, (SYSDATE - LAST_PROCESSED) * 86400 AS SECONDS_AGO FROM TRIGGER_PROCESSED";
-        try (ResultSet rs = ctx.statement().executeQuery(sql)) {
+    /** Trigger count from RDBMS catalog (SYSTEM_.SYS_TRIGGERS_): total and per schema. */
+    @ScrapeMetric(value = "trigger_count", catchSchemaError = true)
+    private void scrapeTriggerCount(ScrapeContext ctx) throws SQLException {
+        long total = queryLong(ctx, "SELECT COUNT(*) FROM SYSTEM_.SYS_TRIGGERS_");
+        ctx.addGauge("trigger_count", Labels.of("schema", "total"), total);
+        try (ResultSet rs = ctx.statement().executeQuery(
+                "SELECT U.USER_NAME, COUNT(*) FROM SYSTEM_.SYS_TRIGGERS_ T, SYSTEM_.SYS_USERS_ U WHERE T.USER_ID = U.USER_ID GROUP BY U.USER_NAME")) {
             while (rs.next()) {
-                String triggerName = nullToEmpty(rs.getString(1));
-                double secondsAgo = rs.getDouble(2);
-                if (!triggerName.isEmpty() && !Double.isNaN(secondsAgo))
-                    ctx.addGauge("trigger_seconds_since_processed", Labels.of("trigger_name", triggerName), Math.max(0, secondsAgo));
+                String schema = nullToEmpty(rs.getString(1));
+                long count = rs.getLong(2);
+                if (!schema.isEmpty())
+                    ctx.addGauge("trigger_count", Labels.of("schema", schema), count);
             }
         }
     }

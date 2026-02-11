@@ -79,7 +79,7 @@ To disable specific metrics:
 | `altibase_utrans_query_count` | — | Uncommitted transaction queries. |
 | `altibase_fullscan_query_count` | — | Full-scan queries (excl. exporter). |
 | `altibase_transaction_manager_count` | status | V$TRANSACTION_MGR total/active count. |
-| `altibase_trigger_seconds_since_processed` | trigger_name | Seconds since each trigger was last processed (TRIGGER_PROCESSED); use in alerts with your own threshold. |
+| `altibase_trigger_count` | schema | Trigger count from SYSTEM_.SYS_TRIGGERS_: total (schema="total") and per schema (schema=user name). |
 | `altibase_replication_sender_count` | — | Replication sender count. |
 | `altibase_replication_receiver_count` | — | Replication receiver count. |
 | `altibase_replication_peer` | replication, role, instance_role, status, mode, peer | Replication peer (who, status, mode). |
@@ -149,6 +149,7 @@ Use a YAML **queries file** to run your own SQL and expose results as gauges.
 - Format: see [examples/queries.yaml](examples/queries.yaml) — each entry has **name**, **help**, **sql** (numeric `value` column), optional **label_columns**.
 - Every custom metric is exposed with the **`altibase_custom_`** prefix (e.g. `name: ping` → `altibase_custom_ping`), so names cannot clash with built-in `altibase_*` metrics.
 - If the file is missing or path empty, only built-in metrics are collected.
+- **Tables/views must exist** in the DB the exporter connects to. If you see `Custom query failed: ... Table or view was not found`, use qualified names in SQL (e.g. `SCHEMA_NAME.TABLE_NAME`) or point the exporter at the correct database.
 
 ---
 

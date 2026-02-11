@@ -227,9 +227,3 @@ groups:
           summary: "Altibase GC {{ $labels.gc_name }} gap high"
           description: "GC gap is {{ $value }}. Memory GC may be lagging."
 
-      - alert: TriggerProcessedLag
-        expr: |
-          (altibase_trigger_seconds_since_processed{trigger_name="oflu"} > 600)
-          or
-          (altibase_trigger_seconds_since_processed > 1800 and on(trigger_name) trigger_name != "oflu")
-        for: 5m

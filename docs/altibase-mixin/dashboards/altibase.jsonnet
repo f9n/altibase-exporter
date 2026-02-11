@@ -36,7 +36,7 @@ local statRows = [
     panels.statPanel(67, 'TxMgr total', 'altibase_transaction_manager_count{status="total", ' + inst + '}', { h: 4, w: 4, x: 8, y: 12 }),
     panels.statPanel(68, 'TxMgr active', 'altibase_transaction_manager_count{status="active", ' + inst + '}', { h: 4, w: 4, x: 12, y: 12 }),
     panels.statPanel(69, 'Locked tables', 'sum(altibase_lock_table{' + inst + '}) or vector(0)', { h: 4, w: 4, x: 16, y: 12 }),
-    panels.statPanel(70, 'Max trigger lag', 'max(altibase_trigger_seconds_since_processed{' + inst + '}) or vector(0)', { h: 4, w: 4, x: 20, y: 12 }, 's'),
+    panels.statPanel(70, 'Trigger count', 'altibase_trigger_count{schema="total", ' + inst + '} or vector(0)', { h: 4, w: 4, x: 20, y: 12 }, 'short'),
   ],
 ];
 
@@ -71,7 +71,7 @@ local timeSeriesRows = [
   tsRow(140, { id: 62, title: 'User password life / lock time', targets: [ts('altibase_user_password_life_time{' + inst + '}', 'life {{user_name}} - {{instance}}'), ts('altibase_user_password_lock_time{' + inst + '}', 'lock {{user_name}} - {{instance}}')], unit: 'short' }, { id: 63, title: 'User failed login attempts', targets: [ts('altibase_user_failed_login_attempts{' + inst + '}', '{{user_name}} - {{instance}}')], unit: 'short' }),
   tsRow(146, { id: 64, title: 'Table size (bytes) by table', targets: [ts('altibase_table_size_bytes{' + inst + '}', '{{schema}}.{{table_name}} ({{type}}) - {{instance}}')], unit: 'bytes' }, { id: 65, title: 'Replication items (replicated tables)', targets: [ts('altibase_replication_item{' + inst + '}', '{{replication}} {{local_user}}.{{local_table}} - {{instance}}')], unit: 'short' }),
   [tsFull(66, 'Property (V$PROPERTY)', [ts('altibase_property{' + inst + '}', '{{name}} = {{value}} - {{instance}}')], 152, 8, 'short')],
-  tsRow(160, { id: 71, title: 'Transaction manager (total / active)', targets: [ts('altibase_transaction_manager_count{status="total", ' + inst + '}', 'total - {{instance}}'), ts('altibase_transaction_manager_count{status="active", ' + inst + '}', 'active - {{instance}}')], unit: 'short' }, { id: 72, title: 'Trigger lag (seconds since processed)', targets: [ts('altibase_trigger_seconds_since_processed{' + inst + '}', '{{trigger_name}} - {{instance}}')], unit: 's' }),
+  tsRow(160, { id: 71, title: 'Transaction manager (total / active)', targets: [ts('altibase_transaction_manager_count{status="total", ' + inst + '}', 'total - {{instance}}'), ts('altibase_transaction_manager_count{status="active", ' + inst + '}', 'active - {{instance}}')], unit: 'short' }, { id: 72, title: 'Trigger count (by schema)', targets: [ts('altibase_trigger_count{schema!="total", ' + inst + '}', '{{schema}} - {{instance}}')], unit: 'short' }),
   tsRow(166, { id: 73, title: 'Locked tables (count)', targets: [ts('sum(altibase_lock_table{' + inst + '}) or vector(0)', 'locked tables - {{instance}}')], unit: 'short' }, { id: 74, title: 'Index alloc size (bytes by index)', targets: [ts('altibase_index_alloc_size_bytes{' + inst + '}', '{{schema}}.{{table_name}} / {{index_name}} - {{instance}}')], unit: 'bytes' }),
 ];
 
