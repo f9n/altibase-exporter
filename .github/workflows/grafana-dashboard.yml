@@ -1,0 +1,71 @@
+# Generate dashboard JSON when Jsonnet changes; optionally deploy to a Grafana instance.
+# Publishing to https://grafana.com/grafana/dashboards/ is manual (no public API); use "Upload from user portal".
+name: Grafana dashboard
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/altibase-mixin/**'
+      - '.github/workflows/grafana-dashboard.yml'
+  pull_request:
+    paths:
+      - 'docs/altibase-mixin/**'
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install jsonnet
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -qq -y jsonnet
+
+      - name: Generate dashboard JSON
+        run: make -C docs/altibase-mixin generated
+
+      - name: Verify generated dashboard (PR)
+        if: github.event_name == 'pull_request'
+        run: |
+          git diff --exit-code docs/altibase-mixin/generated/altibase.json || (
+            echo "::error::docs/altibase-mixin/generated/altibase.json is out of date. Run: make -C docs/altibase-mixin generated"
+            exit 1
+          )
+
+      - name: Commit and push generated dashboard (push to main)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/altibase-mixin/generated/altibase.json
+          git diff --staged --quiet || git commit -m "chore(grafana): regenerate dashboard from Jsonnet"
+          git push || true
+
+      # Optional: deploy to your Grafana instance (Grafana Cloud or self-hosted).
+      # Add repository secrets GRAFANA_URL and GRAFANA_API_KEY to enable.
+      - name: Deploy dashboard to Grafana
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GRAFANA_URL: ${{ secrets.GRAFANA_URL }}
+          GRAFANA_API_KEY: ${{ secrets.GRAFANA_API_KEY }}
+        run: |
+          if [ -z "$GRAFANA_URL" ] || [ -z "$GRAFANA_API_KEY" ]; then
+            echo "Deploy skipped: set GRAFANA_URL and GRAFANA_API_KEY secrets to deploy to your Grafana instance."
+            exit 0
+          fi
+          DASHBOARD_JSON=$(cat docs/altibase-mixin/generated/altibase.json)
+          BODY=$(jq -n \
+            --argjson dashboard "$DASHBOARD_JSON" \
+            '{ dashboard: $dashboard, overwrite: true }')
+          curl -sS -X POST \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $GRAFANA_API_KEY" \
+            "$GRAFANA_URL/api/dashboards/db" \
+            -d "$BODY" | jq -e '.status == "success" or .message == "Dashboard updated"' || (
+            jq . || true
+            exit 1
+          )
+          echo "Dashboard deployed to $GRAFANA_URL"

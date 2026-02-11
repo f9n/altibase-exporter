@@ -74,9 +74,12 @@ To disable specific metrics:
 | `altibase_lf_prepare_wait_count` | — | Logfile prepare wait count. |
 | `altibase_lock_hold_count` | — | Number of lock holds. |
 | `altibase_lock_wait_count` | — | Number of lock waits. |
+| `altibase_lock_table` | table_name, trans_id, lock_desc | Locked tables (one series per lock; value 1). |
 | `altibase_long_run_query_count` | — | Long-running queries (&gt; 1s). |
 | `altibase_utrans_query_count` | — | Uncommitted transaction queries. |
 | `altibase_fullscan_query_count` | — | Full-scan queries (excl. exporter). |
+| `altibase_transaction_manager_count` | status | V$TRANSACTION_MGR total/active count. |
+| `altibase_trigger_seconds_since_processed` | trigger_name | Seconds since each trigger was last processed (TRIGGER_PROCESSED); use in alerts with your own threshold. |
 | `altibase_replication_sender_count` | — | Replication sender count. |
 | `altibase_replication_receiver_count` | — | Replication receiver count. |
 | `altibase_replication_peer` | replication, role, instance_role, status, mode, peer | Replication peer (who, status, mode). |
@@ -124,6 +127,9 @@ To disable specific metrics:
 | `altibase_session_event_time_waited_seconds` | name | Session event time waited (non-Idle). |
 | `altibase_queue_usage_bytes` | name | Queue table usage. |
 | `altibase_segment_usage_bytes` | name | Segment usage by tablespace. |
+| `altibase_index_alloc_size_bytes` | schema, table_name, tablespace, index_name, index_type | Index allocation size in bytes per index. |
+| `altibase_index_metadata` | schema, table_name, index_name, index_id, tablespace, is_unique, column_cnt | Index metadata (value 1 per index). |
+| `altibase_index_information_mem` | schema, object_type, object_name, tablespace, index_name, index_type | Index info for memory table and queue (value 1 per index). |
 | `altibase_lock_hold_detail` | (multiple) | Top 1 lock hold. |
 | `altibase_lock_wait_detail` | (multiple) | Top 1 lock wait. |
 | `altibase_tx_of_memory_view_scn` | (multiple) | Top 1 tx memory view SCN. |
@@ -141,7 +147,7 @@ Use a YAML **queries file** to run your own SQL and expose results as gauges.
 
 - Set path with `ALTIBASE_QUERIES_FILE` or `-altibase.queries-file` (e.g. `ALTIBASE_QUERIES_FILE=examples/queries.yaml`).
 - Format: see [examples/queries.yaml](examples/queries.yaml) — each entry has **name**, **help**, **sql** (numeric `value` column), optional **label_columns**.
-- Custom metric names must not clash with built-in `altibase_*`.
+- Every custom metric is exposed with the **`altibase_custom_`** prefix (e.g. `name: ping` → `altibase_custom_ping`), so names cannot clash with built-in `altibase_*` metrics.
 - If the file is missing or path empty, only built-in metrics are collected.
 
 ---
@@ -226,4 +232,5 @@ Pods must be able to reach the Altibase server (e.g. same VPC, or exposed host/p
 
 ## Grafana
 
-A minimal dashboard is in [examples/grafana/dashboard.json](examples/grafana/dashboard.json).
+Import the dashboard from [Grafana.com (ID: 24792)](https://grafana.com/grafana/dashboards/24792) or use the JSON file at [docs/altibase-mixin/generated/altibase.json](docs/altibase-mixin/generated/altibase.json). See [docs/altibase-mixin/README.md](docs/altibase-mixin/README.md) for source and build.
+

@@ -17,6 +17,9 @@ import org.slf4j.LoggerFactory;
 /** MultiCollector that runs custom SQL from config; each row → one gauge data point (labels + value). */
 public final class CustomQueryCollector implements MultiCollector {
 
+    /** Mandatory prefix for all custom query metric names; avoids clash with built-in altibase_* metrics. */
+    public static final String CUSTOM_METRIC_PREFIX = "altibase_custom_";
+
     private static final Logger log = LoggerFactory.getLogger(CustomQueryCollector.class);
     private final Connection conn;
     private final List<QueryDef> queries;
@@ -25,7 +28,12 @@ public final class CustomQueryCollector implements MultiCollector {
     public CustomQueryCollector(Connection conn, List<QueryDef> queries) {
         this.conn = conn;
         this.queries = List.copyOf(queries);
-        this.metricNames = queries.stream().map(q -> q.name()).toList();
+        this.metricNames = queries.stream().map(q -> customMetricName(q.name())).toList();
+    }
+
+    private static String customMetricName(String name) {
+        if (name == null || name.isEmpty()) return CUSTOM_METRIC_PREFIX + "unnamed";
+        return name.startsWith(CUSTOM_METRIC_PREFIX) ? name : CUSTOM_METRIC_PREFIX + name;
     }
 
     @Override
@@ -35,7 +43,7 @@ public final class CustomQueryCollector implements MultiCollector {
             try {
                 runQuery(q, snapshots);
             } catch (Exception e) {
-                log.warn("Custom query failed: name={} error={}", q.name(), e.getMessage());
+                log.warn("Custom query failed: name={} error={}", customMetricName(q.name()), e.getMessage());
             }
         }
         return new MetricSnapshots(snapshots);
@@ -68,7 +76,7 @@ public final class CustomQueryCollector implements MultiCollector {
             }
         }
         if (!points.isEmpty()) {
-            GaugeSnapshot.Builder b = GaugeSnapshot.builder().name(q.name()).help(q.help());
+            GaugeSnapshot.Builder b = GaugeSnapshot.builder().name(customMetricName(q.name())).help(q.help());
             for (var p : points) b.dataPoint(p);
             out.add(b.build());
         }
