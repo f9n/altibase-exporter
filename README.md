@@ -26,8 +26,8 @@ The exporter needs only JDBC access to Altibase (no ODBC or Altibase install on 
 |----------|-------------|---------|
 | `ALTIBASE_SERVER` | Altibase server host | 127.0.0.1 |
 | `ALTIBASE_PORT` | Altibase port | 20300 |
-| `ALTIBASE_USER` | Database user | — |
-| `ALTIBASE_PASSWORD` | Password | — |
+| `ALTIBASE_USER` | Database user | sys |
+| `ALTIBASE_PASSWORD` | Password | manager |
 | `ALTIBASE_DATABASE` | Database name | mydb |
 | `WEB_LISTEN_PORT` | Exporter HTTP port | 9399 |
 | `ALTIBASE_QUERIES_FILE` | Path to custom queries YAML (optional) | — |

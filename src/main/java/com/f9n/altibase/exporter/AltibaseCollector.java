@@ -21,7 +21,6 @@ import io.prometheus.metrics.model.snapshots.MetricSnapshots;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Custom MultiCollector: scrapes Altibase via JDBC and returns MetricSnapshots on each /metrics request. */
 public final class AltibaseCollector implements MultiCollector {
 
     private static final Logger log = LoggerFactory.getLogger(AltibaseCollector.class);
@@ -344,7 +343,6 @@ public final class AltibaseCollector implements MultiCollector {
         }
     }
 
-    /** Row has 8 columns: REP_NAME, IP, PORT, STATUS, REPL_MODE, XSN, COMMIT_XSN, NET_ERROR_FLAG. */
     private void addReplicationSenderRowWithDetail(ScrapeContext ctx, ResultSet rs) throws SQLException {
         String repName = nullToEmpty(rs.getString(1)).trim();
         String peer = peerString(rs.getString(2), rs.getObject(3));
@@ -590,7 +588,7 @@ public final class AltibaseCollector implements MultiCollector {
 
     @ScrapeMetric(value = "table_size_bytes", catchSchemaError = true)
     private void scrapeTableSize(ScrapeContext ctx) throws SQLException {
-        // Memory tables: schema, table name, tablespace, size. Exclude system (USER_ID=1).
+        // exclude system tables (USER_ID=1)
         String memSql = """
             SELECT U.USER_NAME, T.TABLE_NAME, TS.NAME AS TBS_NAME, (B.FIXED_ALLOC_MEM + B.VAR_ALLOC_MEM) AS SZ \
             FROM SYSTEM_.SYS_USERS_ U, SYSTEM_.SYS_TABLES_ T, V$MEMTBL_INFO B, V$TABLESPACES TS \
@@ -606,7 +604,6 @@ public final class AltibaseCollector implements MultiCollector {
                     ctx.addGauge("table_size_bytes", Labels.of("schema", schema, "table_name", tableName, "tablespace", tablespace, "type", "memory"), sizeBytes);
             }
         }
-        // Disk tables: schema, table name, tablespace, size (DISK_TOTAL_PAGE_CNT * PAGE_SIZE)
         String diskSql = """
             SELECT U.USER_NAME, C.TABLE_NAME, A.NAME AS TBS_NAME, B.DISK_TOTAL_PAGE_CNT * A.PAGE_SIZE AS SZ \
             FROM V$TABLESPACES A, V$DISKTBL_INFO B, SYSTEM_.SYS_TABLES_ C, SYSTEM_.SYS_USERS_ U \
@@ -960,7 +957,6 @@ public final class AltibaseCollector implements MultiCollector {
         ctx.addGauge("fullscan_query_count", fullscan);
     }
 
-    /** V$REPGAP: REP_NAME, REP_LAST_SN, REP_SN, REP_GAP, REP_GAP_SIZE as metrics. */
     @ScrapeMetric(value = {"replication_gap", "replication_gap_size_bytes", "replication_gap_rep_last_sn", "replication_gap_rep_sn"}, catchSchemaError = true)
     private void scrapeReplicationGap(ScrapeContext ctx) throws SQLException {
         String sql = "SELECT REP_NAME, REP_LAST_SN, REP_SN, REP_GAP, REP_GAP_SIZE FROM V$REPGAP";
@@ -978,7 +974,6 @@ public final class AltibaseCollector implements MultiCollector {
         }
     }
 
-    /** SYSTEM_.SYS_JOBS_: job state, exec count, error code (STATE 0=idle, 1=executing). */
     @ScrapeMetric(value = {"job_state", "job_exec_count", "job_error_code", "job_interval"}, catchSchemaError = true)
     private void scrapeJobs(ScrapeContext ctx) throws SQLException {
         String sql = "SELECT JOB_NAME, STATE, EXEC_COUNT, ERROR_CODE, INTERVAL FROM SYSTEM_.SYS_JOBS_";
@@ -995,7 +990,6 @@ public final class AltibaseCollector implements MultiCollector {
         }
     }
 
-    /** V$REPRECEIVER: APPLY_XSN per replication. */
     @ScrapeMetric(value = "replication_receiver_apply_xsn", catchSchemaError = true)
     private void scrapeReplicationReceiverApplyXsn(ScrapeContext ctx) throws SQLException {
         try (ResultSet rs = ctx.statement().executeQuery("SELECT TRIM(REP_NAME), APPLY_XSN FROM V$REPRECEIVER")) {
@@ -1006,7 +1000,6 @@ public final class AltibaseCollector implements MultiCollector {
         }
     }
 
-    /** Disk tablespace: V$DATAFILES + V$TABLESPACES, summed per tablespace (CURRSIZE, MAXSIZE, usage %). */
     @ScrapeMetric(value = {"tablespace_disk_curr_bytes", "tablespace_disk_max_bytes", "tablespace_disk_usage_ratio"}, catchSchemaError = true)
     private void scrapeTablespaceDisk(ScrapeContext ctx) throws SQLException {
         String sql = "SELECT V.NAME, SUM(D.CURRSIZE), SUM(DECODE(D.MAXSIZE, 0, D.CURRSIZE, D.MAXSIZE)) FROM V$DATAFILES D, V$TABLESPACES V WHERE D.SPACEID = V.ID GROUP BY V.NAME";
@@ -1025,7 +1018,6 @@ public final class AltibaseCollector implements MultiCollector {
         }
     }
 
-    /** SYSTEM_.SYS_REPL_ITEMS_: replication target items (1 per replication, local_user, local_table). */
     @ScrapeMetric(value = "replication_item", catchSchemaError = true)
     private void scrapeReplicationItems(ScrapeContext ctx) throws SQLException {
         String sql = "SELECT REPLICATION_NAME, LOCAL_USER_NAME, LOCAL_TABLE_NAME FROM SYSTEM_.SYS_REPL_ITEMS_";
@@ -1039,7 +1031,6 @@ public final class AltibaseCollector implements MultiCollector {
         }
     }
 
-    /** SYSTEM_.SYS_USERS_: password policy (life time, lock time, reuse, failed login attempts). */
     @ScrapeMetric(value = {"user_password_life_time", "user_password_lock_time", "user_failed_login_attempts"}, catchSchemaError = true)
     private void scrapeUserPasswordPolicy(ScrapeContext ctx) throws SQLException {
         String sql = "SELECT USER_NAME, PASSWORD_LIFE_TIME, PASSWORD_LOCK_TIME, FAILED_LOGIN_ATTEMPTS FROM SYSTEM_.SYS_USERS_";
@@ -1082,7 +1073,6 @@ public final class AltibaseCollector implements MultiCollector {
         }
     }
 
-    /** V$PROPERTY: server configuration (like pg_settings). Disable with ALTIBASE_DISABLED_METRICS=property. */
     @ScrapeMetric(value = "property", catchSchemaError = true)
     private void scrapeProperty(ScrapeContext ctx) throws SQLException {
         try (ResultSet rs = ctx.statement().executeQuery("SELECT NAME, VALUE1 FROM V$PROPERTY")) {

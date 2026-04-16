@@ -12,7 +12,5 @@ public @interface ScrapeMetric {
 
     String[] value();
 
-    boolean skipWhenAllDisabled() default true;
-
     boolean catchSchemaError() default false;
 }

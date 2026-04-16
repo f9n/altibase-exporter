@@ -60,7 +60,7 @@ Currently the mixin uses a single global `config.libsonnet`; parameterized confi
 
 ## CI
 
-On push/PR under `docs/altibase-mixin/**`, [`.github/workflows/grafana-dashboard.yml`](../../.github/workflows/grafana-dashboard.yml) regenerates the dashboard and on `main` commits `docs/altibase-mixin/generated/altibase.json`; optionally deploys to Grafana if `GRAFANA_URL` / `GRAFANA_API_KEY` secrets are set. Run `make lint` locally (requires `jsonnetfmt`) to check format. After publishing to [Grafana.com](https://grafana.com/grafana/dashboards/), link the dashboard page (e.g. `https://grafana.com/grafana/dashboards/XXXX-altibase-exporter/`) in the main README.
+Run `make lint` locally (requires `jsonnetfmt`) to check format before committing.
 
 ## Grafana.com upload
 
